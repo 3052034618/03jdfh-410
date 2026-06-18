@@ -74,6 +74,25 @@ export interface ValidationIssue {
   message: string;
   clueId?: string;
   conflictType?: 'duplicate_answer' | 'missing_step_clue' | 'clue_type_mismatch' | 'orphaned_clue';
+  involvedAnswerIds?: string[];
+}
+
+export type ReviewSection = 'broadcast' | 'objective' | 'steps' | 'answers' | 'clues' | 'feedback';
+export type ReviewStatus = 'pending' | 'approved' | 'rejected';
+
+export interface ReviewItem {
+  id: string;
+  section: ReviewSection;
+  status: ReviewStatus;
+  comment: string;
+  itemKey?: string;
+}
+
+export interface VersionReview {
+  versionId: string;
+  notes: string;
+  recommendation: string;
+  reviewDate: Date;
 }
 
 export interface DeliveryPackage {
@@ -123,7 +142,17 @@ export interface PuzzleVersion {
   playerFeedback: PlayerFeedback[];
   fairnessScore: number;
   createdAt: Date;
+  review?: VersionReview;
 }
+
+export const REVIEW_SECTION_LABELS: Record<ReviewSection, string> = {
+  broadcast: '广播稿',
+  objective: '解谜目标',
+  steps: '操作步骤',
+  answers: '答案表',
+  clues: '线索链',
+  feedback: '反馈场景',
+};
 
 export type KnownInfoCategory = 'tape' | 'radio' | 'document' | 'name' | 'history' | 'symbol' | 'phone' | 'other';
 

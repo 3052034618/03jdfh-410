@@ -18,9 +18,11 @@ import {
   DEFAULT_KEYWORD_SUGGESTIONS,
   ANSWER_TYPE_LABELS,
   HINT_LEVEL_LABELS,
+  REVIEW_SECTION_LABELS,
   type ChapterPosition,
   type BroadcastTone,
   type PuzzleVersion,
+  type ReviewSection,
 } from '@/types';
 
 export default function GeneratorPage() {
@@ -48,6 +50,11 @@ export default function GeneratorPage() {
     applyVersionToDraft,
     deleteVersion,
     clearVersions,
+    updateVersionReview,
+    reviewItems,
+    setReviewItem,
+    clearReviewItems,
+    appliedVersionReview,
   } = usePuzzleStore();
 
   const draft = getCurrentDraft();
@@ -63,6 +70,11 @@ export default function GeneratorPage() {
   const [showComparePanel, setShowComparePanel] = useState(false);
   const [showDeliveryPanel, setShowDeliveryPanel] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [versionNotes, setVersionNotes] = useState('');
+  const [versionRecommendation, setVersionRecommendation] = useState('');
+  const [rejectComment, setRejectComment] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!draft) {
@@ -188,7 +200,7 @@ export default function GeneratorPage() {
     if (!draft) return;
     
     const validation = validateClueChain(draft);
-    const markdown = generateDeliveryMarkdown(draft, validation);
+    const markdown = generateDeliveryMarkdown(draft, validation, reviewItems, appliedVersionReview);
     
     try {
       await navigator.clipboard.writeText(markdown);
@@ -197,6 +209,34 @@ export default function GeneratorPage() {
     } catch (err) {
       console.error('复制失败:', err);
     }
+  };
+
+  const handleStartEditReview = (version: PuzzleVersion) => {
+    setEditingVersionId(version.id);
+    setVersionNotes(version.review?.notes || '');
+    setVersionRecommendation(version.review?.recommendation || '');
+  };
+
+  const handleSaveReview = (versionId: string) => {
+    updateVersionReview(versionId, {
+      notes: versionNotes,
+      recommendation: versionRecommendation,
+    });
+    setEditingVersionId(null);
+    setVersionNotes('');
+    setVersionRecommendation('');
+  };
+
+  const handleReviewSection = (section: ReviewSection, status: 'approved' | 'rejected', itemKey?: string) => {
+    const commentKey = itemKey ? `${section}-${itemKey}` : section;
+    setReviewItem({
+      id: `${commentKey}-${Date.now()}`,
+      section,
+      status,
+      comment: rejectComment[commentKey] || '',
+      itemKey,
+    });
+    setRejectComment(prev => ({ ...prev, [commentKey]: '' }));
   };
 
   const selectedVersion = useMemo(() => {
@@ -868,6 +908,79 @@ export default function GeneratorPage() {
                               </ol>
                             </div>
 
+                            <div className="pt-2 border-t border-horror-lightGray/20">
+                              {editingVersionId === version.id ? (
+                                <div className="space-y-2">
+                                  <div>
+                                    <label className="font-terminal text-xs text-gray-500 block mb-1">推荐理由</label>
+                                    <textarea
+                                      value={versionRecommendation}
+                                      onChange={(e) => setVersionRecommendation(e.target.value)}
+                                      placeholder="为什么推荐这个版本..."
+                                      className="w-full px-2 py-1.5 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-xs text-gray-200 focus:outline-none focus:border-horror-neonGreen/50 resize-none h-16"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="font-terminal text-xs text-gray-500 block mb-1">评审备注</label>
+                                    <textarea
+                                      value={versionNotes}
+                                      onChange={(e) => setVersionNotes(e.target.value)}
+                                      placeholder="其他评审备注..."
+                                      className="w-full px-2 py-1.5 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-xs text-gray-200 focus:outline-none focus:border-horror-neonGreen/50 resize-none h-16"
+                                    />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => handleSaveReview(version.id)}
+                                      className="flex-1 py-1.5 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 rounded text-xs font-terminal text-horror-neonGreen transition-colors"
+                                    >
+                                      保存
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingVersionId(null);
+                                        setVersionNotes('');
+                                        setVersionRecommendation('');
+                                      }}
+                                      className="flex-1 py-1.5 bg-horror-gray hover:bg-horror-lightGray rounded text-xs font-terminal text-gray-400 transition-colors"
+                                    >
+                                      取消
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {(version.review?.notes || version.review?.recommendation) && (
+                                    <div className="mb-2 p-2 bg-horror-dark/50 rounded">
+                                      {version.review.recommendation && (
+                                        <div className="mb-1">
+                                          <span className="font-terminal text-xs text-gray-500">推荐理由：</span>
+                                          <p className="font-terminal text-xs text-horror-amber mt-0.5">
+                                            {version.review.recommendation}
+                                          </p>
+                                        </div>
+                                      )}
+                                      {version.review.notes && (
+                                        <div>
+                                          <span className="font-terminal text-xs text-gray-500">评审备注：</span>
+                                          <p className="font-terminal text-xs text-gray-300 mt-0.5">
+                                            {version.review.notes}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => handleStartEditReview(version)}
+                                    className="w-full py-1.5 bg-horror-amber/10 hover:bg-horror-amber/20 border border-horror-amber/30 rounded text-xs font-terminal text-horror-amber transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    {version.review ? '编辑评审备注' : '添加评审备注'}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+
                             <div className="flex items-center gap-2 pt-2 border-t border-horror-lightGray/20">
                               <div className="flex-1 p-2 bg-horror-dark/50 rounded text-center">
                                 <div className="font-terminal text-xs text-gray-500">线索</div>
@@ -1097,6 +1210,39 @@ export default function GeneratorPage() {
                     编剧交付包 - 关卡需求卡
                   </h3>
                   <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 bg-horror-gray rounded-lg p-1 border border-horror-lightGray/30">
+                      <button
+                        onClick={() => setReviewMode(false)}
+                        className={`px-3 py-1.5 rounded font-terminal text-xs transition-colors ${
+                          !reviewMode
+                            ? 'bg-horror-amber/20 text-horror-amber'
+                            : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                      >
+                        预览
+                      </button>
+                      <button
+                        onClick={() => setReviewMode(true)}
+                        className={`px-3 py-1.5 rounded font-terminal text-xs transition-colors ${
+                          reviewMode
+                            ? 'bg-horror-amber/20 text-horror-amber'
+                            : 'text-gray-400 hover:text-gray-200'
+                        }`}
+                      >
+                        评审模式
+                      </button>
+                    </div>
+                    {reviewMode && (
+                      <button
+                        onClick={() => {
+                          clearReviewItems();
+                          setRejectComment({});
+                        }}
+                        className="px-3 py-1.5 bg-horror-gray rounded font-terminal text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                      >
+                        清空评审
+                      </button>
+                    )}
                     <button
                       onClick={handleCopyDelivery}
                       className={`px-4 py-2 rounded font-terminal text-sm transition-colors flex items-center gap-1 ${
@@ -1106,9 +1252,9 @@ export default function GeneratorPage() {
                       }`}
                     >
                       {copied ? (
-                        <><Check className="w-4 h-4" /> 已复制 Markdown</>
+                        <><Check className="w-4 h-4" /> 已复制</>
                       ) : (
-                        <><Copy className="w-4 h-4" /> 一键复制</>
+                        <><Copy className="w-4 h-4" /> 复制</>
                       )}
                     </button>
                     <button
@@ -1120,11 +1266,91 @@ export default function GeneratorPage() {
                   </div>
                 </div>
 
-                <div className="retro-card rounded-lg p-6 bg-horror-gray/30">
-                  <pre className="font-terminal text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
-                    {draft && generateDeliveryMarkdown(draft, validateClueChain(draft))}
-                  </pre>
-                </div>
+                {reviewMode ? (
+                  <div className="space-y-4">
+                    {(['broadcast', 'objective', 'steps', 'answers', 'clues', 'feedback'] as ReviewSection[]).map((section) => {
+                      const sectionReview = reviewItems.find(r => r.section === section);
+                      const commentKey = section;
+                      return (
+                        <motion.div
+                          key={section}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`retro-card rounded-lg p-4 ${
+                            sectionReview?.status === 'approved'
+                              ? 'border-2 border-horror-neonGreen/50 bg-horror-neonGreen/5'
+                              : sectionReview?.status === 'rejected'
+                              ? 'border-2 border-horror-neonRed/50 bg-horror-neonRed/5'
+                              : ''
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-4 mb-3">
+                            <div>
+                              <h4 className="font-terminal text-base text-horror-neonGreen mb-1">
+                                {REVIEW_SECTION_LABELS[section]}
+                              </h4>
+                              {sectionReview && (
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-terminal ${
+                                    sectionReview.status === 'approved' ? 'text-horror-neonGreen' : 'text-horror-neonRed'
+                                  }`}>
+                                    {sectionReview.status === 'approved' ? '✅ 已通过' : '❌ 已打回'}
+                                  </span>
+                                  {sectionReview.comment && (
+                                    <span className="text-xs font-terminal text-gray-400">
+                                      意见：{sectionReview.comment}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {(sectionReview?.status !== 'approved' || !sectionReview) && (
+                                <button
+                                  onClick={() => handleReviewSection(section, 'approved')}
+                                  className="px-3 py-1 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 rounded text-xs font-terminal text-horror-neonGreen transition-colors"
+                                >
+                                  ✓ 通过
+                                </button>
+                              )}
+                              {(sectionReview?.status !== 'rejected' || !sectionReview) && (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={rejectComment[commentKey] || ''}
+                                    onChange={(e) => setRejectComment(prev => ({ ...prev, [commentKey]: e.target.value }))}
+                                    placeholder="修改意见..."
+                                    className="px-2 py-1 bg-horror-dark border border-horror-lightGray/50 rounded text-xs font-terminal text-gray-200 focus:outline-none focus:border-horror-neonRed/50 w-40"
+                                  />
+                                  <button
+                                    onClick={() => handleReviewSection(section, 'rejected')}
+                                    className="px-3 py-1 bg-horror-neonRed/20 hover:bg-horror-neonRed/30 border border-horror-neonRed/50 rounded text-xs font-terminal text-horror-neonRed transition-colors"
+                                  >
+                                    ✕ 打回
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="p-3 bg-horror-dark/50 rounded text-xs font-terminal text-gray-300 max-h-24 overflow-y-auto">
+                            {section === 'broadcast' && draft.radioSegment?.broadcastText.substring(0, 200)}...
+                            {section === 'objective' && draft.radioSegment?.puzzleObjective}
+                            {section === 'steps' && draft.radioSegment?.playerSteps.slice(0, 3).map((s, i) => `${i + 1}. ${s}`).join('\n')}
+                            {section === 'answers' && draft.answers.map((a, i) => `${i + 1}. ${ANSWER_TYPE_LABELS[a.type]}: ${a.value}`).join('\n')}
+                            {section === 'clues' && draft.clues.slice(0, 5).map((c, i) => `${i + 1}. [${HINT_LEVEL_LABELS[c.hintLevel]}] ${c.content.substring(0, 50)}`).join('\n')}
+                            {section === 'feedback' && draft.playerFeedback.slice(0, 2).map(f => `- ${f.feedbackText.substring(0, 50)}`).join('\n')}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="retro-card rounded-lg p-6 bg-horror-gray/30">
+                    <pre className="font-terminal text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
+                      {draft && generateDeliveryMarkdown(draft, validateClueChain(draft), reviewItems, appliedVersionReview)}
+                    </pre>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}

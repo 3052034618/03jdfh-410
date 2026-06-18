@@ -1,4 +1,4 @@
-import type { PuzzleDraft, ValidationResult, ValidationIssue, Clue, Answer } from '@/types';
+import type { PuzzleDraft, ValidationResult, ValidationIssue, Clue, Answer, ReviewItem, VersionReview } from '@/types';
 import {
   CHAPTER_POSITION_LABELS,
   BROADCAST_TONE_LABELS,
@@ -6,6 +6,7 @@ import {
   HINT_LEVEL_LABELS,
   ANSWER_TYPE_LABELS,
   FEEDBACK_SCENARIO_LABELS,
+  REVIEW_SECTION_LABELS,
 } from '@/types';
 import { generateId } from './helpers';
 
@@ -255,6 +256,39 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
     }
   });
 
+  const clueContentMap = new Map<string, string[]>();
+  draft.clues.forEach(clue => {
+    const normalizedContent = clue.content.toLowerCase().trim();
+    if (!clueContentMap.has(normalizedContent)) {
+      clueContentMap.set(normalizedContent, []);
+    }
+    clueContentMap.get(normalizedContent)!.push(clue.id);
+  });
+
+  clueContentMap.forEach((clueIds, content) => {
+    if (clueIds.length > 1) {
+      const answerIds = new Set<string>();
+      clueIds.forEach(id => {
+        const clue = draft.clues.find(c => c.id === id);
+        if (clue?.answerId) {
+          answerIds.add(clue.answerId);
+        }
+      });
+      
+      if (answerIds.size > 1) {
+        const answers = Array.from(answerIds).map(id => draft.answers.find(a => a.id === id)?.value).filter(Boolean);
+        const involvedIds = Array.from(answerIds);
+        issues.push({
+          id: generateId(),
+          type: 'error',
+          message: `多条相同线索被不同答案争抢：内容为"${content.substring(0, 30)}..."的 ${clueIds.length} 条线索，分别关联了 ${answers.join('、')} 等 ${answerIds.size} 个答案，请明确每条线索的唯一指向。`,
+          conflictType: 'duplicate_answer',
+          involvedAnswerIds: involvedIds,
+        });
+      }
+    }
+  });
+
   const clueAnswerMap = new Map<string, string[]>();
   draft.clues.forEach(clue => {
     if (clue.answerId) {
@@ -268,12 +302,14 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
   clueAnswerMap.forEach((answerIds, clueId) => {
     if (answerIds.length > 1) {
       const answers = answerIds.map(id => draft.answers.find(a => a.id === id)?.value).filter(Boolean);
+      const involvedIds = [...answerIds];
       issues.push({
         id: generateId(),
         type: 'error',
         message: `线索被多个答案争抢：这条线索同时关联了 ${answers.join('、')} 等 ${answerIds.length} 个答案，请明确线索的唯一指向。`,
         clueId,
         conflictType: 'duplicate_answer',
+        involvedAnswerIds: involvedIds,
       });
     }
   });
@@ -288,6 +324,7 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
           message: `线索类型不匹配："${clue.content.substring(0, 20)}..." 标记为 ${clue.answerType} 类型，但关联的答案是 ${answer.type} 类型。`,
           clueId: clue.id,
           conflictType: 'clue_type_mismatch',
+          involvedAnswerIds: [clue.answerId],
         });
       }
     }
@@ -362,7 +399,9 @@ const checkStepClueCoverage = (draft: PuzzleDraft): ValidationIssue[] => {
 
 export const generateDeliveryMarkdown = (
   draft: PuzzleDraft,
-  validationResult: ValidationResult
+  validationResult: ValidationResult,
+  reviewItems: ReviewItem[] = [],
+  versionReview?: VersionReview
 ): string => {
 
   const steps = draft.radioSegment?.playerSteps || [];
@@ -378,6 +417,17 @@ export const generateDeliveryMarkdown = (
     md += `- **玩家已知信息**：${draft.playerKnownInfo.join('、')}\n`;
   }
   md += `- **公平性评分**：${validationResult.score}/100 ${validationResult.score >= 80 ? '✅' : validationResult.score >= 60 ? '⚠️' : '❌'}\n\n`;
+
+  if (versionReview && (versionReview.notes || versionReview.recommendation)) {
+    md += `## 版本评审\n\n`;
+    if (versionReview.recommendation) {
+      md += `### 推荐理由\n\n> ${versionReview.recommendation}\n\n`;
+    }
+    if (versionReview.notes) {
+      md += `### 评审备注\n\n${versionReview.notes}\n\n`;
+    }
+    md += `*评审时间：${new Date(versionReview.reviewDate).toLocaleString('zh-CN')}*\n\n`;
+  }
 
   md += `## 广播稿\n\n`;
   md += `\`\`\`\n${draft.radioSegment?.broadcastText || '未生成'}\n\`\`\`\n\n`;
@@ -464,6 +514,27 @@ export const generateDeliveryMarkdown = (
       });
       md += `\n`;
     }
+  }
+
+  if (reviewItems.length > 0) {
+    md += `## 评审记录\n\n`;
+    const sections = [...new Set(reviewItems.map(r => r.section))];
+    sections.forEach(section => {
+      const sectionItems = reviewItems.filter(r => r.section === section);
+      md += `### ${REVIEW_SECTION_LABELS[section]}\n\n`;
+      sectionItems.forEach(item => {
+        const statusIcon = item.status === 'approved' ? '✅ 通过' : item.status === 'rejected' ? '❌ 打回' : '⏳ 待评审';
+        md += `- ${statusIcon}`;
+        if (item.itemKey) {
+          md += ` **${item.itemKey}**`;
+        }
+        md += `\n`;
+        if (item.comment) {
+          md += `  > ${item.comment}\n`;
+        }
+      });
+      md += `\n`;
+    });
   }
 
   md += `---\n\n`;

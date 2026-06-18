@@ -133,6 +133,52 @@ export default function CluesPage() {
     return colors[type] || 'bg-gray-500/20 text-gray-400 border-gray-500/50';
   };
 
+  const stepTypes = useMemo(() => {
+    const types: (AnswerType | null)[] = [];
+    playerSteps.forEach((step) => {
+      let type: AnswerType | null = null;
+      if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM')) {
+        type = 'frequency';
+      } else if (step.includes('旋钮') || step.includes('旋转') || step.includes('档位')) {
+        type = 'knob';
+      } else if (step.includes('磁带') || step.includes('播放') || step.includes('倒带')) {
+        type = 'tape';
+      } else if (step.includes('时间') || step.includes('点钟') || step.includes('午夜') || step.includes('凌晨')) {
+        type = 'time';
+      } else if (step.includes('密码') || step.includes('组合') || step.includes('数字')) {
+        type = 'code';
+      }
+      types.push(type);
+    });
+    return types;
+  }, [playerSteps]);
+
+  const getAutoRelatedStep = (clueType: AnswerType): number => {
+    const exactMatch = stepTypes.indexOf(clueType);
+    if (exactMatch !== -1) return exactMatch;
+
+    const compatibleMap: Record<AnswerType, AnswerType[]> = {
+      frequency: ['frequency'],
+      knob: ['knob', 'frequency'],
+      tape: ['tape'],
+      time: ['time'],
+      code: ['code'],
+    };
+
+    const compatibleTypes = compatibleMap[clueType] || [];
+    for (const compatType of compatibleTypes) {
+      const idx = stepTypes.indexOf(compatType);
+      if (idx !== -1) return idx;
+    }
+
+    return stepTypes.length > 0 ? 0 : 0;
+  };
+
+  const getAutoRelatedStepLabel = (clueType: AnswerType): string => {
+    const stepIdx = getAutoRelatedStep(clueType);
+    return `第 ${stepIdx + 1} 步：${playerSteps[stepIdx]?.substring(0, 15) || '未检测到'}...`;
+  };
+
   useEffect(() => {
     if (isLinkMode && selectedClueId && selectedAnswerId) {
       const answer = draft?.answers.find(a => a.id === selectedAnswerId);
@@ -190,11 +236,13 @@ export default function CluesPage() {
 
   const handleAddClue = () => {
     if (newClueContent.trim()) {
+      const relatedStep = getAutoRelatedStep(newClueType);
       addClue({
         content: newClueContent.trim(),
         hintLevel: 'moderate',
         order: draft.clues.length,
         answerType: newClueType,
+        relatedStep,
       });
       setNewClueContent('');
       setShowAddClue(false);
@@ -340,24 +388,43 @@ export default function CluesPage() {
               <AlertTriangle className="w-5 h-5" />
               线索冲突提醒 ({conflictIssues.length})
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {Array.from(new Set(conflictIssues.map(i => i.conflictType))).map((type) => {
-                if (!type) return null;
-                const issues = conflictIssues.filter(i => i.conflictType === type);
+            <div className="space-y-3">
+              {conflictIssues.map((issue, index) => {
+                const involvedAnswers = issue.involvedAnswerIds?.map(id => 
+                  draft.answers.find(a => a.id === id)
+                ).filter(Boolean);
                 return (
-                  <div key={type} className={`p-3 rounded-lg border ${getConflictTypeColor(type)}`}>
-                    <div className="font-terminal text-sm font-bold mb-1">
-                      {getConflictTypeLabel(type)}
+                  <motion.div
+                    key={issue.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className={`p-3 rounded-lg border ${getConflictTypeColor(issue.type)} flex items-start gap-3`}
+                  >
+                    {issue.type === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                    {issue.type === 'warning' && <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-xs font-terminal border ${getConflictTypeColor(issue.conflictType || 'orphaned_clue')}`}>
+                          {getConflictTypeLabel(issue.conflictType || 'orphaned_clue')}
+                        </span>
+                        {involvedAnswers && involvedAnswers.length > 0 && (
+                          <span className="text-xs font-terminal text-gray-400">
+                            涉及答案：
+                          </span>
+                        )}
+                        {involvedAnswers?.map((ans, i) => ans && (
+                          <span 
+                            key={i} 
+                            className={`px-2 py-0.5 rounded text-xs font-terminal border ${ANSWER_TYPE_COLORS[ans.type].bg} ${ANSWER_TYPE_COLORS[ans.type].text} ${ANSWER_TYPE_COLORS[ans.type].border}`}
+                          >
+                            {ans.value}
+                          </span>
+                        ))}
+                      </div>
+                      <span className="font-terminal text-sm block">{issue.message}</span>
                     </div>
-                    <div className="font-terminal text-xs opacity-80">
-                      {issues.length} 个问题
-                    </div>
-                    <div className="mt-2 text-xs font-terminal opacity-70">
-                      {issues.slice(0, 2).map((issue, i) => (
-                        <div key={i} className="truncate">• {issue.message.substring(0, 30)}...</div>
-                      ))}
-                    </div>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
@@ -587,6 +654,12 @@ export default function CluesPage() {
                           </option>
                         ))}
                       </select>
+                      <div className={`p-2 rounded ${ANSWER_TYPE_COLORS[newClueType].bg} ${ANSWER_TYPE_COLORS[newClueType].border} border`}>
+                        <div className="font-terminal text-xs text-gray-500 mb-1">自动归属步骤：</div>
+                        <div className={`font-terminal text-xs ${ANSWER_TYPE_COLORS[newClueType].text}`}>
+                          {getAutoRelatedStepLabel(newClueType)}
+                        </div>
+                      </div>
                       <textarea
                         value={newClueContent}
                         onChange={(e) => setNewClueContent(e.target.value)}

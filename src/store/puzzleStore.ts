@@ -10,6 +10,8 @@ import type {
   PlayerFeedback,
   GenerationParams,
   PuzzleVersion,
+  ReviewItem,
+  VersionReview,
 } from '@/types';
 import { generateId } from '@/utils/helpers';
 
@@ -20,6 +22,8 @@ interface PuzzleState {
   isGenerating: boolean;
   versions: PuzzleVersion[];
   selectedVersionId: string | null;
+  reviewItems: ReviewItem[];
+  appliedVersionReview?: VersionReview;
   
   getCurrentDraft: () => PuzzleDraft | null;
   createNewDraft: () => void;
@@ -58,6 +62,10 @@ interface PuzzleState {
   applyVersionToDraft: (versionId: string) => void;
   deleteVersion: (versionId: string) => void;
   clearVersions: () => void;
+  updateVersionReview: (versionId: string, review: Partial<VersionReview>) => void;
+  
+  setReviewItem: (item: ReviewItem) => void;
+  clearReviewItems: () => void;
 }
 
 const defaultGenerationParams: GenerationParams = {
@@ -94,6 +102,8 @@ export const usePuzzleStore = create<PuzzleState>()(
       isGenerating: false,
       versions: [],
       selectedVersionId: null,
+      reviewItems: [],
+      appliedVersionReview: undefined,
       
       getCurrentDraft: () => {
         const { drafts, currentDraftId } = get();
@@ -500,6 +510,7 @@ export const usePuzzleStore = create<PuzzleState>()(
                 }
               : d
           ),
+          appliedVersionReview: version.review ? { ...version.review } : undefined,
         }));
       },
       
@@ -517,6 +528,48 @@ export const usePuzzleStore = create<PuzzleState>()(
       
       clearVersions: () => {
         set({ versions: [], selectedVersionId: null });
+      },
+
+      updateVersionReview: (versionId, review) => {
+        set(state => ({
+          versions: state.versions.map(v =>
+            v.id === versionId
+              ? {
+                  ...v,
+                  review: {
+                    versionId,
+                    notes: review.notes || v.review?.notes || '',
+                    recommendation: review.recommendation || v.review?.recommendation || '',
+                    reviewDate: new Date(),
+                  },
+                }
+              : v
+          ),
+        }));
+      },
+
+      setReviewItem: (item) => {
+        set(state => {
+          const existingIndex = state.reviewItems.findIndex(
+            r => r.section === item.section && r.itemKey === item.itemKey
+          );
+          
+          if (existingIndex >= 0) {
+            return {
+              reviewItems: state.reviewItems.map((r, i) =>
+                i === existingIndex ? { ...r, ...item } : r
+              ),
+            };
+          } else {
+            return {
+              reviewItems: [...state.reviewItems, item],
+            };
+          }
+        });
+      },
+
+      clearReviewItems: () => {
+        set({ reviewItems: [] });
       },
     }),
     {
