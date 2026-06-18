@@ -1,4 +1,12 @@
 import type { PuzzleDraft, ValidationResult, ValidationIssue, Clue, Answer } from '@/types';
+import {
+  CHAPTER_POSITION_LABELS,
+  BROADCAST_TONE_LABELS,
+  HORROR_INTENSITY_LABELS,
+  HINT_LEVEL_LABELS,
+  ANSWER_TYPE_LABELS,
+  FEEDBACK_SCENARIO_LABELS,
+} from '@/types';
 import { generateId } from './helpers';
 
 export const validateClueChain = (draft: PuzzleDraft): ValidationResult => {
@@ -103,6 +111,12 @@ export const validateClueChain = (draft: PuzzleDraft): ValidationResult => {
       message: '存在内容相似的线索，可以考虑合并或调整以增加多样性。',
     });
   }
+
+  const conflictIssues = checkClueConflicts(draft);
+  issues.push(...conflictIssues);
+
+  const stepClueIssues = checkStepClueCoverage(draft);
+  issues.push(...stepClueIssues);
   
   if (draft.playerFeedback.length < 4) {
     issues.push({
@@ -226,4 +240,234 @@ export const getIssueColor = (type: ValidationIssue['type']): string => {
     case 'warning': return 'text-horror-amber border-horror-amber bg-yellow-900/20';
     case 'info': return 'text-horror-cyan border-horror-cyan bg-cyan-900/20';
   }
+};
+
+const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
+  const issues: ValidationIssue[] = [];
+  const answerClueMap = new Map<string, string[]>();
+
+  draft.clues.forEach(clue => {
+    if (clue.answerId) {
+      if (!answerClueMap.has(clue.answerId)) {
+        answerClueMap.set(clue.answerId, []);
+      }
+      answerClueMap.get(clue.answerId)!.push(clue.id);
+    }
+  });
+
+  const clueAnswerMap = new Map<string, string[]>();
+  draft.clues.forEach(clue => {
+    if (clue.answerId) {
+      if (!clueAnswerMap.has(clue.id)) {
+        clueAnswerMap.set(clue.id, []);
+      }
+      clueAnswerMap.get(clue.id)!.push(clue.answerId);
+    }
+  });
+
+  clueAnswerMap.forEach((answerIds, clueId) => {
+    if (answerIds.length > 1) {
+      const answers = answerIds.map(id => draft.answers.find(a => a.id === id)?.value).filter(Boolean);
+      issues.push({
+        id: generateId(),
+        type: 'error',
+        message: `线索被多个答案争抢：这条线索同时关联了 ${answers.join('、')} 等 ${answerIds.length} 个答案，请明确线索的唯一指向。`,
+        clueId,
+        conflictType: 'duplicate_answer',
+      });
+    }
+  });
+
+  draft.clues.forEach(clue => {
+    if (clue.answerId && clue.answerType) {
+      const answer = draft.answers.find(a => a.id === clue.answerId);
+      if (answer && answer.type !== clue.answerType) {
+        issues.push({
+          id: generateId(),
+          type: 'warning',
+          message: `线索类型不匹配："${clue.content.substring(0, 20)}..." 标记为 ${clue.answerType} 类型，但关联的答案是 ${answer.type} 类型。`,
+          clueId: clue.id,
+          conflictType: 'clue_type_mismatch',
+        });
+      }
+    }
+  });
+
+  return issues;
+};
+
+const checkStepClueCoverage = (draft: PuzzleDraft): ValidationIssue[] => {
+  const issues: ValidationIssue[] = [];
+  
+  if (!draft.radioSegment || !draft.radioSegment.playerSteps) {
+    return issues;
+  }
+
+  const steps = draft.radioSegment.playerSteps;
+  const stepTypes: Array<{ stepIndex: number; type: string | null }> = [];
+
+  steps.forEach((step, index) => {
+    let type: string | null = null;
+    if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM')) {
+      type = 'frequency';
+    } else if (step.includes('旋钮') || step.includes('旋转') || step.includes('档位')) {
+      type = 'knob';
+    } else if (step.includes('磁带') || step.includes('播放') || step.includes('倒带')) {
+      type = 'tape';
+    } else if (step.includes('时间') || step.includes('点钟') || step.includes('午夜') || step.includes('凌晨')) {
+      type = 'time';
+    } else if (step.includes('密码') || step.includes('组合') || step.includes('数字')) {
+      type = 'code';
+    }
+    stepTypes.push({ stepIndex: index, type });
+  });
+
+  stepTypes.forEach(({ stepIndex, type }) => {
+    if (type) {
+      const hasClue = draft.clues.some(c => 
+        c.relatedStep === stepIndex && c.answerType === type
+      );
+      if (!hasClue) {
+        const typeLabel: Record<string, string> = {
+          frequency: '频率',
+          knob: '旋钮',
+          tape: '磁带',
+          time: '时间',
+          code: '密码',
+        };
+        issues.push({
+          id: generateId(),
+          type: 'warning',
+          message: `第 ${stepIndex + 1} 步"${steps[stepIndex].substring(0, 15)}..."缺少 ${typeLabel[type]} 类型的关键线索支撑，玩家可能不知道该如何操作。`,
+          conflictType: 'missing_step_clue',
+        });
+      }
+    }
+  });
+
+  const orphanedClues = draft.clues.filter(c => 
+    c.relatedStep === undefined || c.relatedStep === null || c.relatedStep >= steps.length
+  );
+  if (orphanedClues.length > 0) {
+    issues.push({
+      id: generateId(),
+      type: 'warning',
+      message: `有 ${orphanedClues.length} 条线索没有归属到具体操作步骤，建议为每条线索设置 relatedStep 字段。`,
+      conflictType: 'orphaned_clue',
+    });
+  }
+
+  return issues;
+};
+
+export const generateDeliveryMarkdown = (
+  draft: PuzzleDraft,
+  validationResult: ValidationResult
+): string => {
+
+  const steps = draft.radioSegment?.playerSteps || [];
+  
+  let md = `# 阴间电台谜题 - 关卡需求卡\n\n`;
+  
+  md += `## 基本信息\n\n`;
+  md += `- **章节位置**：${CHAPTER_POSITION_LABELS[draft.chapterPosition]}\n`;
+  md += `- **广播口吻**：${BROADCAST_TONE_LABELS[draft.broadcastTone]}\n`;
+  md += `- **恐怖强度**：${draft.horrorIntensity} - ${HORROR_INTENSITY_LABELS[draft.horrorIntensity]}\n`;
+  md += `- **关键词**：${draft.keywords.join('、')}\n`;
+  if (draft.playerKnownInfo.length > 0) {
+    md += `- **玩家已知信息**：${draft.playerKnownInfo.join('、')}\n`;
+  }
+  md += `- **公平性评分**：${validationResult.score}/100 ${validationResult.score >= 80 ? '✅' : validationResult.score >= 60 ? '⚠️' : '❌'}\n\n`;
+
+  md += `## 广播稿\n\n`;
+  md += `\`\`\`\n${draft.radioSegment?.broadcastText || '未生成'}\n\`\`\`\n\n`;
+
+  md += `## 解谜目标\n\n`;
+  md += `${draft.radioSegment?.puzzleObjective || '未生成'}\n\n`;
+
+  md += `## 玩家操作步骤\n\n`;
+  steps.forEach((step, index) => {
+    const stepClues = draft.clues.filter(c => c.relatedStep === index);
+    const stepAnswer = draft.answers.find(a => 
+      stepClues.some(c => c.answerId === a.id)
+    );
+    md += `### 步骤 ${index + 1}：${step}\n\n`;
+    if (stepAnswer) {
+      md += `- **目标答案**：[${ANSWER_TYPE_LABELS[stepAnswer.type]}] ${stepAnswer.value} - ${stepAnswer.description}\n`;
+    }
+    if (stepClues.length > 0) {
+      md += `- **支撑线索**：\n`;
+      stepClues.forEach((clue, i) => {
+        md += `  ${i + 1}. [${HINT_LEVEL_LABELS[clue.hintLevel]}] ${clue.content}\n`;
+      });
+    }
+    md += `\n`;
+  });
+
+  md += `## 答案表\n\n`;
+  md += `| 序号 | 类型 | 答案值 | 描述 | 关联线索数 |\n`;
+  md += `| --- | --- | --- | --- | --- |\n`;
+  draft.answers.forEach((answer, index) => {
+    const clueCount = draft.clues.filter(c => c.answerId === answer.id).length;
+    md += `| ${index + 1} | ${ANSWER_TYPE_LABELS[answer.type]} | ${answer.value} | ${answer.description} | ${clueCount} |\n`;
+  });
+  md += `\n`;
+
+  md += `## 线索链\n\n`;
+  draft.clues.sort((a, b) => a.order - b.order).forEach((clue, index) => {
+    const answer = draft.answers.find(a => a.id === clue.answerId);
+    md += `### 线索 ${index + 1}\n\n`;
+    md += `- **内容**：${clue.content}\n`;
+    md += `- **明显程度**：${HINT_LEVEL_LABELS[clue.hintLevel]}\n`;
+    md += `- **线索类型**：${clue.answerType ? ANSWER_TYPE_LABELS[clue.answerType] : '未指定'}\n`;
+    md += `- **服务步骤**：第 ${(clue.relatedStep ?? 0) + 1} 步\n`;
+    if (answer) {
+      md += `- **指向答案**：${answer.value}\n`;
+    }
+    md += `\n`;
+  });
+
+  md += `## 玩家反馈场景\n\n`;
+  draft.playerFeedback.forEach((fb) => {
+    md += `### ${FEEDBACK_SCENARIO_LABELS[fb.scenario]}\n\n`;
+    md += `- **视觉效果**：${fb.visualEffect}\n`;
+    md += `- **反馈文本**：\n\n`;
+    md += `  > ${fb.feedbackText.replace(/\n/g, '\n  > ')}\n\n`;
+  });
+
+  if (validationResult.issues.length > 0) {
+    md += `## 验证问题\n\n`;
+    const errors = validationResult.issues.filter(i => i.type === 'error');
+    const warnings = validationResult.issues.filter(i => i.type === 'warning');
+    const infos = validationResult.issues.filter(i => i.type === 'info');
+    
+    if (errors.length > 0) {
+      md += `### ❌ 错误 (${errors.length})\n\n`;
+      errors.forEach((issue, i) => {
+        md += `${i + 1}. ${issue.message}\n`;
+      });
+      md += `\n`;
+    }
+    
+    if (warnings.length > 0) {
+      md += `### ⚠️ 警告 (${warnings.length})\n\n`;
+      warnings.forEach((issue, i) => {
+        md += `${i + 1}. ${issue.message}\n`;
+      });
+      md += `\n`;
+    }
+    
+    if (infos.length > 0) {
+      md += `### ℹ️ 提示 (${infos.length})\n\n`;
+      infos.forEach((issue, i) => {
+        md += `${i + 1}. ${issue.message}\n`;
+      });
+      md += `\n`;
+    }
+  }
+
+  md += `---\n\n`;
+  md += `*由阴间电台谜题草稿台自动生成于 ${new Date().toLocaleString('zh-CN')}*\n`;
+
+  return md;
 };

@@ -211,7 +211,8 @@ const generateClues = (
     answer: string;
     number: string;
   },
-  answers: Answer[]
+  answers: Answer[],
+  stepTypes: AnswerType[]
 ): Clue[] => {
   const modifier = horrorModifiers[params.horrorIntensity];
   const clueCount = modifier.clueCount;
@@ -259,10 +260,32 @@ const generateClues = (
   const remainingClues = shuffledPool.filter(c => !selectedClues.includes(c));
   selectedClues.push(...remainingClues.slice(0, clueCount - selectedClues.length));
   
+  const getRelatedStepForType = (type: AnswerType): number => {
+    const exactMatch = stepTypes.indexOf(type);
+    if (exactMatch !== -1) return exactMatch;
+    
+    const compatibleMap: Record<AnswerType, AnswerType[]> = {
+      frequency: ['frequency'],
+      knob: ['knob', 'frequency'],
+      tape: ['tape'],
+      time: ['time'],
+      code: ['code'],
+    };
+    
+    const compatibleTypes = compatibleMap[type] || [];
+    for (const compatType of compatibleTypes) {
+      const idx = stepTypes.indexOf(compatType);
+      if (idx !== -1) return idx;
+    }
+    
+    return stepTypes.length > 0 ? stepTypes.length - 1 : 0;
+  };
+  
   selectedClues.forEach((clue, index) => {
     const answer = answerTypeMap[clue.answerType];
     const isObvious = Math.random() < modifier.obviousRatio;
     const level: HintLevel = isObvious ? 'obvious' : clue.level;
+    const relatedStep = getRelatedStepForType(clue.answerType);
     
     clues.push({
       id: generateId(),
@@ -271,14 +294,18 @@ const generateClues = (
       order: index,
       answerId: answer?.id,
       answerType: clue.answerType,
-      relatedStep: index,
+      relatedStep,
     });
   });
   
   return clues.sort((a, b) => {
     const order: Record<HintLevel, number> = { subtle: 0, moderate: 1, obvious: 2 };
     return order[a.hintLevel] - order[b.hintLevel];
-  }).map((clue, index) => ({ ...clue, order: index, relatedStep: index }));
+  }).map((clue, index) => ({ 
+    ...clue, 
+    order: index, 
+    relatedStep: getRelatedStepForType(clue.answerType!) 
+  }));
 };
 
 const generatePlayerFeedback = (
@@ -425,7 +452,7 @@ export const generateRadioPuzzle = (params: GenerationParams): GeneratedContent 
   
   const answers = generateAnswers({ frequency, time, answer });
   
-  const { steps: playerSteps } = generatePlayerStepsWithTypes(params, placeholders, answers);
+  const { steps: playerSteps, stepTypes } = generatePlayerStepsWithTypes(params, placeholders, answers);
   
   const radioSegment: RadioSegment = {
     id: generateId(),
@@ -437,7 +464,7 @@ export const generateRadioPuzzle = (params: GenerationParams): GeneratedContent 
     playerSteps,
   };
   
-  const clues = generateClues(params, placeholders, answers);
+  const clues = generateClues(params, placeholders, answers, stepTypes);
   
   const playerFeedback = generatePlayerFeedback(params, placeholders);
   

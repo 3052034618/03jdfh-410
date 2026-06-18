@@ -73,6 +73,45 @@ export interface ValidationIssue {
   type: 'error' | 'warning' | 'info';
   message: string;
   clueId?: string;
+  conflictType?: 'duplicate_answer' | 'missing_step_clue' | 'clue_type_mismatch' | 'orphaned_clue';
+}
+
+export interface DeliveryPackage {
+  title: string;
+  chapterPosition: string;
+  broadcastTone: string;
+  horrorIntensity: string;
+  keywords: string[];
+  playerKnownInfo: string[];
+  broadcastText: string;
+  puzzleObjective: string;
+  playerSteps: Array<{
+    stepNumber: number;
+    description: string;
+    relatedClues: Clue[];
+    relatedAnswer?: Answer;
+  }>;
+  answers: Array<{
+    type: string;
+    value: string;
+    description: string;
+    relatedClues: Clue[];
+  }>;
+  clues: Array<{
+    order: number;
+    content: string;
+    hintLevel: string;
+    answerType: string;
+    relatedStep: number;
+    answerValue?: string;
+  }>;
+  feedbackScenarios: Array<{
+    scenario: string;
+    feedbackText: string;
+    visualEffect: string;
+  }>;
+  fairnessScore: number;
+  validationIssues: ValidationIssue[];
 }
 
 export interface PuzzleVersion {

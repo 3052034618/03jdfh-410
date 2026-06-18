@@ -97,6 +97,42 @@ export default function CluesPage() {
     return grouped;
   }, [draft]);
 
+  const conflictClueIds = useMemo(() => {
+    if (!validationResult) return new Set<string>();
+    const ids = new Set<string>();
+    validationResult.issues.forEach(issue => {
+      if (issue.conflictType && issue.clueId) {
+        ids.add(issue.clueId);
+      }
+    });
+    return ids;
+  }, [validationResult]);
+
+  const conflictIssues = useMemo(() => {
+    if (!validationResult) return [];
+    return validationResult.issues.filter(i => i.conflictType);
+  }, [validationResult]);
+
+  const getConflictTypeLabel = (type: string): string => {
+    const labels: Record<string, string> = {
+      duplicate_answer: '多答案争抢',
+      missing_step_clue: '步骤缺线索',
+      clue_type_mismatch: '类型不匹配',
+      orphaned_clue: '无归属步骤',
+    };
+    return labels[type] || '冲突';
+  };
+
+  const getConflictTypeColor = (type: string): string => {
+    const colors: Record<string, string> = {
+      duplicate_answer: 'bg-horror-neonRed/20 text-horror-neonRed border-horror-neonRed/50',
+      missing_step_clue: 'bg-horror-amber/20 text-horror-amber border-horror-amber/50',
+      clue_type_mismatch: 'bg-horror-orange/20 text-horror-orange border-horror-orange/50',
+      orphaned_clue: 'bg-horror-purple/20 text-horror-purple border-horror-purple/50',
+    };
+    return colors[type] || 'bg-gray-500/20 text-gray-400 border-gray-500/50';
+  };
+
   useEffect(() => {
     if (isLinkMode && selectedClueId && selectedAnswerId) {
       const answer = draft?.answers.find(a => a.id === selectedAnswerId);
@@ -279,11 +315,52 @@ export default function CluesPage() {
                     {issue.type === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
                     {issue.type === 'warning' && <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />}
                     {issue.type === 'info' && <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-                    <span className="font-terminal text-sm">{issue.message}</span>
+                    <div className="flex-1">
+                      <span className="font-terminal text-sm">{issue.message}</span>
+                      {issue.conflictType && (
+                        <span className={`ml-2 px-2 py-0.5 rounded text-xs font-terminal border ${getConflictTypeColor(issue.conflictType)}`}>
+                          {getConflictTypeLabel(issue.conflictType)}
+                        </span>
+                      )}
+                    </div>
                   </motion.div>
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+
+        {conflictIssues.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="retro-card rounded-xl p-6 mb-8 border-2 border-horror-neonRed/50 bg-horror-neonRed/5"
+          >
+            <h3 className="font-terminal text-lg text-horror-neonRed mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5" />
+              线索冲突提醒 ({conflictIssues.length})
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              {Array.from(new Set(conflictIssues.map(i => i.conflictType))).map((type) => {
+                if (!type) return null;
+                const issues = conflictIssues.filter(i => i.conflictType === type);
+                return (
+                  <div key={type} className={`p-3 rounded-lg border ${getConflictTypeColor(type)}`}>
+                    <div className="font-terminal text-sm font-bold mb-1">
+                      {getConflictTypeLabel(type)}
+                    </div>
+                    <div className="font-terminal text-xs opacity-80">
+                      {issues.length} 个问题
+                    </div>
+                    <div className="mt-2 text-xs font-terminal opacity-70">
+                      {issues.slice(0, 2).map((issue, i) => (
+                        <div key={i} className="truncate">• {issue.message.substring(0, 30)}...</div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </motion.div>
         )}
 
@@ -598,6 +675,10 @@ export default function CluesPage() {
                                         clue.answerId
                                           ? 'border-l-4 border-l-horror-neonGreen'
                                           : 'border-l-4 border-l-horror-neonRed/50'
+                                      } ${
+                                        conflictClueIds.has(clue.id)
+                                          ? 'ring-2 ring-horror-neonRed/50 animate-pulse'
+                                          : ''
                                       }`}
                                       whileHover={{ x: 4 }}
                                     >
@@ -609,10 +690,18 @@ export default function CluesPage() {
                                           </span>
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="flex items-center justify-between gap-2 mb-2">
-                                            <span className={`px-2 py-0.5 rounded text-xs font-terminal border ${getHintLevelColor(clue.hintLevel)}`}>
-                                              {HINT_LEVEL_LABELS[clue.hintLevel]}
-                                            </span>
+                                          <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className={`px-2 py-0.5 rounded text-xs font-terminal border ${getHintLevelColor(clue.hintLevel)}`}>
+                                                {HINT_LEVEL_LABELS[clue.hintLevel]}
+                                              </span>
+                                              {conflictClueIds.has(clue.id) && (
+                                                <span className="px-2 py-0.5 rounded text-xs font-terminal border bg-horror-neonRed/20 text-horror-neonRed border-horror-neonRed/50 flex items-center gap-1">
+                                                  <AlertTriangle className="w-3 h-3" />
+                                                  冲突
+                                                </span>
+                                              )}
+                                            </div>
                                             <div className="flex items-center gap-1">
                                               <button
                                                 onClick={(e) => {
@@ -730,6 +819,10 @@ export default function CluesPage() {
                         clue.answerId
                           ? 'border-l-4 border-l-horror-neonGreen'
                           : 'border-l-4 border-l-horror-neonRed/50'
+                      } ${
+                        conflictClueIds.has(clue.id)
+                          ? 'ring-2 ring-horror-neonRed/50 animate-pulse'
+                          : ''
                       }`}
                       whileHover={{ x: 4 }}
                     >
@@ -742,7 +835,7 @@ export default function CluesPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2 mb-2">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className={`px-2 py-0.5 rounded text-xs font-terminal border ${colors.bg} ${colors.text} ${colors.border} flex items-center gap-1`}>
                                 <Icon className="w-3 h-3" />
                                 {ANSWER_TYPE_LABELS[clue.answerType || 'code']}
@@ -750,6 +843,12 @@ export default function CluesPage() {
                               <span className={`px-2 py-0.5 rounded text-xs font-terminal border ${getHintLevelColor(clue.hintLevel)}`}>
                                 {HINT_LEVEL_LABELS[clue.hintLevel]}
                               </span>
+                              {conflictClueIds.has(clue.id) && (
+                                <span className="px-2 py-0.5 rounded text-xs font-terminal border bg-horror-neonRed/20 text-horror-neonRed border-horror-neonRed/50 flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  冲突
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1">
                               <button

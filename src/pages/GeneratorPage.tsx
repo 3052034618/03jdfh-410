@@ -3,17 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Radio, MapPin, User, Volume2, AlertTriangle, Plus, X, Sparkles, 
   ArrowRight, Target, ListTodo, Layers, Check, Trash2, 
-  ChevronDown, ChevronUp, Copy, RefreshCw 
+  ChevronDown, ChevronUp, Copy, RefreshCw, GitCompare, CheckCircle2,
+  FileText
 } from 'lucide-react';
 import { usePuzzleStore } from '@/store/puzzleStore';
 import { RadioKnob, SpectrumVisualizer, TypewriterText } from '@/components';
 import { generateRadioPuzzle, generateMultipleVersions, simulateDelay } from '@/utils/radioGenerator';
+import { validateClueChain, generateDeliveryMarkdown } from '@/utils/validation';
 import { 
   CHAPTER_POSITION_LABELS, 
   BROADCAST_TONE_LABELS, 
   HORROR_INTENSITY_LABELS,
   DEFAULT_KNOWN_INFO_OPTIONS,
   DEFAULT_KEYWORD_SUGGESTIONS,
+  ANSWER_TYPE_LABELS,
+  HINT_LEVEL_LABELS,
   type ChapterPosition,
   type BroadcastTone,
   type PuzzleVersion,
@@ -55,6 +59,10 @@ export default function GeneratorPage() {
   const [versionCount, setVersionCount] = useState(3);
   const [showVersionPanel, setShowVersionPanel] = useState(true);
   const [compareMode, setCompareMode] = useState(false);
+  const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>([]);
+  const [showComparePanel, setShowComparePanel] = useState(false);
+  const [showDeliveryPanel, setShowDeliveryPanel] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!draft) {
@@ -163,9 +171,41 @@ export default function GeneratorPage() {
     selectVersion(versionId);
   };
 
+  const toggleVersionSelection = (versionId: string) => {
+    setSelectedVersionIds(prev => {
+      if (prev.includes(versionId)) {
+        return prev.filter(id => id !== versionId);
+      } else {
+        if (prev.length >= 3) {
+          return [...prev.slice(1), versionId];
+        }
+        return [...prev, versionId];
+      }
+    });
+  };
+
+  const handleCopyDelivery = async () => {
+    if (!draft) return;
+    
+    const validation = validateClueChain(draft);
+    const markdown = generateDeliveryMarkdown(draft, validation);
+    
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  };
+
   const selectedVersion = useMemo(() => {
     return versions.find(v => v.id === selectedVersionId);
   }, [versions, selectedVersionId]);
+
+  const compareVersions = useMemo(() => {
+    return versions.filter(v => selectedVersionIds.includes(v.id));
+  }, [versions, selectedVersionIds]);
 
   const steps = [
     { label: '分析参数', icon: Radio },
@@ -604,12 +644,35 @@ export default function GeneratorPage() {
                     生成版本 ({versions.length})
                   </h3>
                   <div className="flex items-center gap-2">
+                    {versions.length >= 2 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (selectedVersionIds.length >= 2) {
+                            setShowComparePanel(!showComparePanel);
+                          } else {
+                            alert('请先选择 2-3 个版本进行对照（点击版本卡片左侧的复选框）');
+                          }
+                        }}
+                        className={`px-3 py-1 rounded text-xs font-terminal transition-colors flex items-center gap-1 ${
+                          selectedVersionIds.length >= 2
+                            ? 'bg-horror-neonGreen/20 text-horror-neonGreen border border-horror-neonGreen/50 hover:bg-horror-neonGreen/30'
+                            : 'bg-horror-gray text-gray-500 border border-horror-lightGray/30'
+                        }`}
+                        title="版本对照"
+                      >
+                        <GitCompare className="w-3.5 h-3.5" />
+                        对照 ({selectedVersionIds.length}/3)
+                      </button>
+                    )}
                     {versions.length > 0 && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           if (confirm('确定要清空所有版本吗？')) {
                             clearVersions();
+                            setSelectedVersionIds([]);
+                            setShowComparePanel(false);
                           }
                         }}
                         className="text-gray-500 hover:text-horror-neonRed transition-colors p-1"
@@ -631,7 +694,9 @@ export default function GeneratorPage() {
                       className="overflow-hidden"
                     >
                       <div className="p-4 pt-0 space-y-2 max-h-80 overflow-y-auto">
-                        {versions.map((version, index) => (
+                        {versions.map((version, index) => {
+                          const isSelected = selectedVersionIds.includes(version.id);
+                          return (
                           <motion.div
                             key={version.id}
                             initial={{ opacity: 0, x: -10 }}
@@ -642,8 +707,26 @@ export default function GeneratorPage() {
                               selectedVersionId === version.id
                                 ? 'bg-horror-neonGreen/10 border-horror-neonGreen/50'
                                 : 'bg-horror-gray/30 border-horror-lightGray/30 hover:border-horror-neonGreen/30'
+                            } ${
+                              isSelected ? 'ring-2 ring-horror-neonGreen/50' : ''
                             }`}
                           >
+                            <div className="flex items-start gap-3">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleVersionSelection(version.id);
+                                }}
+                                className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+                                  isSelected
+                                    ? 'bg-horror-neonGreen border-horror-neonGreen'
+                                    : 'border-horror-lightGray/50 hover:border-horror-neonGreen/50'
+                                }`}
+                                title="选择用于对照"
+                              >
+                                {isSelected && <Check className="w-3 h-3 text-horror-dark" />}
+                              </button>
+                              <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-terminal text-sm text-gray-200 flex items-center gap-2">
                                 <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
@@ -680,20 +763,148 @@ export default function GeneratorPage() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   deleteVersion(version.id);
+                                  setSelectedVersionIds(prev => prev.filter(id => id !== version.id));
                                 }}
                                 className="px-3 py-1.5 bg-horror-gray/50 hover:bg-horror-red/20 border border-horror-lightGray/30 hover:border-horror-red/50 rounded text-xs font-terminal text-gray-400 hover:text-horror-red transition-colors"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
+                              </div>
+                            </div>
                           </motion.div>
-                        ))}
+                        );
+                        })}
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </motion.div>
             )}
+
+            <AnimatePresence>
+              {showComparePanel && compareVersions.length >= 2 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="retro-card rounded-xl overflow-hidden mb-6"
+                >
+                  <div className="p-4 border-b border-horror-lightGray/30 flex items-center justify-between bg-horror-neonGreen/5">
+                    <h3 className="font-terminal text-lg text-horror-neonGreen flex items-center gap-2">
+                      <GitCompare className="w-5 h-5" />
+                      版本对照 ({compareVersions.length} 个版本)
+                    </h3>
+                    <button
+                      onClick={() => setShowComparePanel(false)}
+                      className="p-1 hover:bg-horror-gray rounded transition-colors"
+                    >
+                      <X className="w-4 h-4 text-gray-400" />
+                    </button>
+                  </div>
+                  <div className="p-4 overflow-x-auto">
+                    <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${compareVersions.length}, minmax(320px, 1fr))` }}>
+                      {compareVersions.map((version, vIndex) => (
+                        <motion.div
+                          key={version.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: vIndex * 0.1 }}
+                          className={`retro-card rounded-lg p-4 ${
+                            selectedVersionId === version.id ? 'ring-2 ring-horror-neonGreen' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-3 pb-3 border-b border-horror-lightGray/30">
+                            <div className="flex items-center gap-2">
+                              <span className="w-8 h-8 rounded-full bg-horror-neonGreen/20 border border-horror-neonGreen/50 flex items-center justify-center font-horror text-lg text-horror-neonGreen">
+                                {version.versionNumber}
+                              </span>
+                              <span className="font-terminal text-base text-gray-200">
+                                版本 {version.versionNumber}
+                              </span>
+                            </div>
+                            <div className={`px-2 py-1 rounded text-xs font-terminal border ${getScoreBgColor(version.fairnessScore)}`}>
+                              <span className={getScoreColor(version.fairnessScore)}>
+                                {version.fairnessScore} 分
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div>
+                              <div className="font-terminal text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                <Radio className="w-3 h-3" /> 广播文本
+                              </div>
+                              <div className="p-2 bg-horror-dark/50 rounded text-xs font-terminal text-gray-300 max-h-24 overflow-y-auto leading-relaxed">
+                                {version.radioSegment.broadcastText.substring(0, 150)}...
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="font-terminal text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                <Target className="w-3 h-3" /> 解谜目标
+                              </div>
+                              <div className="p-2 bg-horror-dark/50 rounded text-xs font-terminal text-gray-300 max-h-20 overflow-y-auto">
+                                {version.radioSegment.puzzleObjective}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="font-terminal text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                <ListTodo className="w-3 h-3" /> 操作步骤 ({version.radioSegment.playerSteps.length})
+                              </div>
+                              <ol className="space-y-1">
+                                {version.radioSegment.playerSteps.slice(0, 3).map((step, i) => (
+                                  <li key={i} className="text-xs font-terminal text-gray-300 flex items-start gap-2">
+                                    <span className="text-horror-neonGreen">{i + 1}.</span>
+                                    <span className="truncate">{step}</span>
+                                  </li>
+                                ))}
+                                {version.radioSegment.playerSteps.length > 3 && (
+                                  <li className="text-xs font-terminal text-gray-500">
+                                    ... 还有 {version.radioSegment.playerSteps.length - 3} 步
+                                  </li>
+                                )}
+                              </ol>
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-2 border-t border-horror-lightGray/20">
+                              <div className="flex-1 p-2 bg-horror-dark/50 rounded text-center">
+                                <div className="font-terminal text-xs text-gray-500">线索</div>
+                                <div className="font-horror text-xl text-horror-neonGreen">
+                                  {version.clues.length}
+                                </div>
+                              </div>
+                              <div className="flex-1 p-2 bg-horror-dark/50 rounded text-center">
+                                <div className="font-terminal text-xs text-gray-500">答案</div>
+                                <div className="font-horror text-xl text-horror-amber">
+                                  {version.answers.length}
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              onClick={() => handleApplyVersion(version.id)}
+                              className={`w-full py-2 rounded font-terminal text-sm transition-colors flex items-center justify-center gap-1 ${
+                                selectedVersionId === version.id
+                                  ? 'bg-horror-neonGreen/30 border-2 border-horror-neonGreen text-horror-neonGreen'
+                                  : 'bg-horror-neonGreen/10 border border-horror-neonGreen/50 text-horror-neonGreen hover:bg-horror-neonGreen/20'
+                              }`}
+                            >
+                              {selectedVersionId === version.id ? (
+                                <><CheckCircle2 className="w-4 h-4" /> 当前草稿</>
+                              ) : (
+                                <><Check className="w-4 h-4" /> 设为当前草稿</>
+                              )}
+                            </button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <AnimatePresence mode="wait">
               {showResult && displayContent && (
@@ -799,6 +1010,54 @@ export default function GeneratorPage() {
                       </div>
                     </div>
                   </motion.div>
+
+                  {draft?.radioSegment && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.7 }}
+                      className="retro-card rounded-xl p-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-horror-amber/20 border border-horror-amber/50 flex items-center justify-center">
+                            <FileText className="w-5 h-5 text-horror-amber" />
+                          </div>
+                          <div>
+                            <h4 className="font-terminal text-sm text-horror-amber">
+                              编剧交付包
+                            </h4>
+                            <p className="font-terminal text-xs text-gray-500">
+                              整理成完整的关卡需求卡，可直接复制为 Markdown
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowDeliveryPanel(!showDeliveryPanel)}
+                            className="px-4 py-2 bg-horror-amber/20 hover:bg-horror-amber/30 border border-horror-amber/50 rounded font-terminal text-sm text-horror-amber transition-colors flex items-center gap-1"
+                          >
+                            <FileText className="w-4 h-4" />
+                            查看详情
+                          </button>
+                          <button
+                            onClick={handleCopyDelivery}
+                            className={`px-4 py-2 rounded font-terminal text-sm transition-colors flex items-center gap-1 ${
+                              copied
+                                ? 'bg-horror-neonGreen/30 border border-horror-neonGreen text-horror-neonGreen'
+                                : 'bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 text-horror-neonGreen'
+                            }`}
+                          >
+                            {copied ? (
+                              <><Check className="w-4 h-4" /> 已复制</>
+                            ) : (
+                              <><Copy className="w-4 h-4" /> 复制 Markdown</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -822,6 +1081,54 @@ export default function GeneratorPage() {
             )}
           </div>
         </div>
+
+        <AnimatePresence>
+          {showDeliveryPanel && draft?.radioSegment && (
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="fixed inset-x-0 bottom-0 z-50 bg-horror-dark border-t border-horror-neonGreen/30 shadow-[0_-5px_30px_rgba(57,255,20,0.2)]"
+            >
+              <div className="container mx-auto px-4 py-4 max-h-[70vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-terminal text-xl text-horror-amber flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    编剧交付包 - 关卡需求卡
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCopyDelivery}
+                      className={`px-4 py-2 rounded font-terminal text-sm transition-colors flex items-center gap-1 ${
+                        copied
+                          ? 'bg-horror-neonGreen/30 border border-horror-neonGreen text-horror-neonGreen'
+                          : 'bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 text-horror-neonGreen'
+                      }`}
+                    >
+                      {copied ? (
+                        <><Check className="w-4 h-4" /> 已复制 Markdown</>
+                      ) : (
+                        <><Copy className="w-4 h-4" /> 一键复制</>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setShowDeliveryPanel(false)}
+                      className="p-2 hover:bg-horror-gray rounded transition-colors"
+                    >
+                      <X className="w-5 h-5 text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="retro-card rounded-lg p-6 bg-horror-gray/30">
+                  <pre className="font-terminal text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
+                    {draft && generateDeliveryMarkdown(draft, validateClueChain(draft))}
+                  </pre>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
