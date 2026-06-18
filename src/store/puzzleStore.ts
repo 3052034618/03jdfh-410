@@ -12,6 +12,8 @@ import type {
   PuzzleVersion,
   ReviewItem,
   VersionReview,
+  ReviewRound,
+  ReviewConclusion,
 } from '@/types';
 import { generateId } from '@/utils/helpers';
 
@@ -24,8 +26,10 @@ interface PuzzleState {
   selectedVersionId: string | null;
   reviewItems: ReviewItem[];
   appliedVersionReview?: VersionReview;
+  reviewRounds: ReviewRound[];
   
   getCurrentDraft: () => PuzzleDraft | null;
+  getCurrentDraftReviewRounds: () => ReviewRound[];
   createNewDraft: () => void;
   setCurrentDraft: (id: string) => void;
   deleteDraft: (id: string) => void;
@@ -43,6 +47,8 @@ interface PuzzleState {
   setRadioSegment: (segment: RadioSegment) => void;
   setClues: (clues: Clue[]) => void;
   updateClue: (id: string, updates: Partial<Clue>) => void;
+  addClueAnswer: (clueId: string, answerId: string) => void;
+  removeClueAnswer: (clueId: string, answerId: string) => void;
   addClue: (clue: Omit<Clue, 'id'>) => void;
   removeClue: (id: string) => void;
   
@@ -66,6 +72,8 @@ interface PuzzleState {
   
   setReviewItem: (item: ReviewItem) => void;
   clearReviewItems: () => void;
+  addReviewRound: (round: Omit<ReviewRound, 'id' | 'reviewDate' | 'draftId'>) => void;
+  updateCurrentRoundConclusion: (conclusion: ReviewConclusion, overallComment: string, reviewerName: string) => void;
 }
 
 const defaultGenerationParams: GenerationParams = {
@@ -104,10 +112,16 @@ export const usePuzzleStore = create<PuzzleState>()(
       selectedVersionId: null,
       reviewItems: [],
       appliedVersionReview: undefined,
+      reviewRounds: [],
       
       getCurrentDraft: () => {
         const { drafts, currentDraftId } = get();
         return drafts.find(d => d.id === currentDraftId) || null;
+      },
+
+      getCurrentDraftReviewRounds: () => {
+        const { reviewRounds, currentDraftId } = get();
+        return reviewRounds.filter(r => r.draftId === currentDraftId);
       },
       
       createNewDraft: () => {
@@ -571,6 +585,85 @@ export const usePuzzleStore = create<PuzzleState>()(
       clearReviewItems: () => {
         set({ reviewItems: [] });
       },
+
+      addClueAnswer: (clueId, answerId) => {
+        set(state => ({
+          drafts: state.drafts.map(d =>
+            d.id === state.currentDraftId
+              ? {
+                  ...d,
+                  clues: d.clues.map(c => {
+                    if (c.id !== clueId) return c;
+                    const currentIds = c.answerIds || (c.answerId ? [c.answerId] : []);
+                    const newAnswerIds = currentIds.includes(answerId)
+                      ? currentIds
+                      : [...currentIds, answerId];
+                    return {
+                      ...c,
+                      answerIds: newAnswerIds,
+                      answerId: newAnswerIds.length > 0 ? newAnswerIds[0] : undefined,
+                    };
+                  }),
+                  updatedAt: new Date(),
+                }
+              : d
+          ),
+        }));
+      },
+
+      removeClueAnswer: (clueId, answerId) => {
+        set(state => ({
+          drafts: state.drafts.map(d =>
+            d.id === state.currentDraftId
+              ? {
+                  ...d,
+                  clues: d.clues.map(c => {
+                    if (c.id !== clueId) return c;
+                    const currentIds = c.answerIds || (c.answerId ? [c.answerId] : []);
+                    const newAnswerIds = currentIds.filter(id => id !== answerId);
+                    return {
+                      ...c,
+                      answerIds: newAnswerIds.length > 0 ? newAnswerIds : undefined,
+                      answerId: newAnswerIds.length > 0 ? newAnswerIds[0] : undefined,
+                    };
+                  }),
+                  updatedAt: new Date(),
+                }
+              : d
+          ),
+        }));
+      },
+
+      addReviewRound: (roundData: Omit<ReviewRound, 'id' | 'reviewDate' | 'draftId'>) => {
+        const { currentDraftId } = get();
+        if (!currentDraftId) return;
+        
+        const newRound: ReviewRound = {
+          ...roundData,
+          draftId: currentDraftId,
+          id: generateId(),
+          reviewDate: new Date(),
+        };
+        set(state => ({
+          reviewRounds: [...state.reviewRounds, newRound],
+        }));
+      },
+
+      updateCurrentRoundConclusion: (conclusion, overallComment, reviewerName) => {
+        set(state => ({
+          reviewRounds: state.reviewRounds.map(r =>
+            r.draftId === state.currentDraftId
+              ? {
+                  ...r,
+                  conclusion,
+                  overallComment,
+                  reviewerName,
+                  reviewDate: new Date(),
+                }
+              : r
+          ),
+        }));
+      },
     }),
     {
       name: 'puzzle-draft-storage',
@@ -578,6 +671,7 @@ export const usePuzzleStore = create<PuzzleState>()(
       partialize: (state) => ({
         drafts: state.drafts,
         currentDraftId: state.currentDraftId,
+        reviewRounds: state.reviewRounds,
       }),
     }
   )

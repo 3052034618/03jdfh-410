@@ -1,4 +1,4 @@
-import type { PuzzleDraft, ValidationResult, ValidationIssue, Clue, Answer, ReviewItem, VersionReview } from '@/types';
+import type { PuzzleDraft, ValidationResult, ValidationIssue, Clue, Answer, ReviewItem, VersionReview, ReviewRound } from '@/types';
 import {
   CHAPTER_POSITION_LABELS,
   BROADCAST_TONE_LABELS,
@@ -40,7 +40,7 @@ export const validateClueChain = (draft: PuzzleDraft): ValidationResult => {
     return { isValid: false, issues, score: 0 };
   }
   
-  const unassignedClues = draft.clues.filter(c => !c.answerId);
+  const unassignedClues = draft.clues.filter(c => getClueAnswerIds(c).length === 0);
   if (unassignedClues.length > 0) {
     issues.push({
       id: generateId(),
@@ -50,8 +50,9 @@ export const validateClueChain = (draft: PuzzleDraft): ValidationResult => {
   }
   
   const cluesWithoutAnswers = draft.clues.filter(c => {
-    if (!c.answerId) return false;
-    return !draft.answers.some(a => a.id === c.answerId);
+    const ids = getClueAnswerIds(c);
+    if (ids.length === 0) return false;
+    return ids.some(id => !draft.answers.some(a => a.id === id));
   });
   
   if (cluesWithoutAnswers.length > 0) {
@@ -63,7 +64,7 @@ export const validateClueChain = (draft: PuzzleDraft): ValidationResult => {
   }
   
   const answersWithoutClues = draft.answers.filter(a => 
-    !draft.clues.some(c => c.answerId === a.id)
+    !draft.clues.some(c => getClueAnswerIds(c).includes(a.id))
   );
   
   if (answersWithoutClues.length > 0) {
@@ -140,13 +141,15 @@ const checkLogicalFlow = (clues: Clue[], answers: Answer[]): boolean => {
   let hasFinalCode = false;
   
   for (const clue of clues) {
-    if (!clue.answerId) continue;
-    const answer = answerMap.get(clue.answerId);
-    if (!answer) continue;
-    
-    if (answer.type === 'frequency') hasFrequency = true;
-    if (answer.type === 'time') hasTime = true;
-    if (answer.type === 'code') hasFinalCode = true;
+    const clueAnswerIds = getClueAnswerIds(clue);
+    if (clueAnswerIds.length === 0) continue;
+    for (const aid of clueAnswerIds) {
+      const answer = answerMap.get(aid);
+      if (!answer) continue;
+      if (answer.type === 'frequency') hasFrequency = true;
+      if (answer.type === 'time') hasTime = true;
+      if (answer.type === 'code') hasFinalCode = true;
+    }
   }
   
   if (hasFinalCode && (!hasFrequency || !hasTime)) {
@@ -243,17 +246,24 @@ export const getIssueColor = (type: ValidationIssue['type']): string => {
   }
 };
 
+const getClueAnswerIds = (clue: Clue): string[] => {
+  if (clue.answerIds && clue.answerIds.length > 0) return clue.answerIds;
+  if (clue.answerId) return [clue.answerId];
+  return [];
+};
+
 const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
   const issues: ValidationIssue[] = [];
   const answerClueMap = new Map<string, string[]>();
 
   draft.clues.forEach(clue => {
-    if (clue.answerId) {
-      if (!answerClueMap.has(clue.answerId)) {
-        answerClueMap.set(clue.answerId, []);
+    const answerIds = getClueAnswerIds(clue);
+    answerIds.forEach(aid => {
+      if (!answerClueMap.has(aid)) {
+        answerClueMap.set(aid, []);
       }
-      answerClueMap.get(clue.answerId)!.push(clue.id);
-    }
+      answerClueMap.get(aid)!.push(clue.id);
+    });
   });
 
   const clueContentMap = new Map<string, string[]>();
@@ -270,8 +280,8 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
       const answerIds = new Set<string>();
       clueIds.forEach(id => {
         const clue = draft.clues.find(c => c.id === id);
-        if (clue?.answerId) {
-          answerIds.add(clue.answerId);
+        if (clue) {
+          getClueAnswerIds(clue).forEach(aid => answerIds.add(aid));
         }
       });
       
@@ -280,8 +290,8 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
         const involvedIds = Array.from(answerIds);
         issues.push({
           id: generateId(),
-          type: 'error',
-          message: `多条相同线索被不同答案争抢：内容为"${content.substring(0, 30)}..."的 ${clueIds.length} 条线索，分别关联了 ${answers.join('、')} 等 ${answerIds.size} 个答案，请明确每条线索的唯一指向。`,
+          type: 'warning',
+          message: `同内容线索关联多个答案："${content.substring(0, 30)}..." 共 ${clueIds.length} 条线索，关联了 ${answers.join('、')} 等 ${answerIds.size} 个答案（多答案共用线索是允许的，但若含义冲突请调整）。`,
           conflictType: 'duplicate_answer',
           involvedAnswerIds: involvedIds,
         });
@@ -289,25 +299,16 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
     }
   });
 
-  const clueAnswerMap = new Map<string, string[]>();
   draft.clues.forEach(clue => {
-    if (clue.answerId) {
-      if (!clueAnswerMap.has(clue.id)) {
-        clueAnswerMap.set(clue.id, []);
-      }
-      clueAnswerMap.get(clue.id)!.push(clue.answerId);
-    }
-  });
-
-  clueAnswerMap.forEach((answerIds, clueId) => {
+    const answerIds = getClueAnswerIds(clue);
     if (answerIds.length > 1) {
       const answers = answerIds.map(id => draft.answers.find(a => a.id === id)?.value).filter(Boolean);
       const involvedIds = [...answerIds];
       issues.push({
         id: generateId(),
-        type: 'error',
-        message: `线索被多个答案争抢：这条线索同时关联了 ${answers.join('、')} 等 ${answerIds.length} 个答案，请明确线索的唯一指向。`,
-        clueId,
+        type: 'info',
+        message: `线索关联多个答案：本条线索同时指向 ${answers.join('、')} 共 ${answerIds.length} 个答案，请注意确认设计意图。`,
+        clueId: clue.id,
         conflictType: 'duplicate_answer',
         involvedAnswerIds: involvedIds,
       });
@@ -315,18 +316,21 @@ const checkClueConflicts = (draft: PuzzleDraft): ValidationIssue[] => {
   });
 
   draft.clues.forEach(clue => {
-    if (clue.answerId && clue.answerType) {
-      const answer = draft.answers.find(a => a.id === clue.answerId);
-      if (answer && answer.type !== clue.answerType) {
-        issues.push({
-          id: generateId(),
-          type: 'warning',
-          message: `线索类型不匹配："${clue.content.substring(0, 20)}..." 标记为 ${clue.answerType} 类型，但关联的答案是 ${answer.type} 类型。`,
-          clueId: clue.id,
-          conflictType: 'clue_type_mismatch',
-          involvedAnswerIds: [clue.answerId],
-        });
-      }
+    const answerIds = getClueAnswerIds(clue);
+    if (answerIds.length > 0 && clue.answerType) {
+      answerIds.forEach(aid => {
+        const answer = draft.answers.find(a => a.id === aid);
+        if (answer && answer.type !== clue.answerType) {
+          issues.push({
+            id: generateId(),
+            type: 'warning',
+            message: `线索类型不匹配："${clue.content.substring(0, 20)}..." 标记为 ${clue.answerType} 类型，但关联的答案"${answer.value}"是 ${answer.type} 类型。`,
+            clueId: clue.id,
+            conflictType: 'clue_type_mismatch',
+            involvedAnswerIds: [aid],
+          });
+        }
+      });
     }
   });
 
@@ -345,7 +349,7 @@ const checkStepClueCoverage = (draft: PuzzleDraft): ValidationIssue[] => {
 
   steps.forEach((step, index) => {
     let type: string | null = null;
-    if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM')) {
+    if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM') || step.includes('频段') || step.includes('调到')) {
       type = 'frequency';
     } else if (step.includes('旋钮') || step.includes('旋转') || step.includes('档位')) {
       type = 'knob';
@@ -401,7 +405,8 @@ export const generateDeliveryMarkdown = (
   draft: PuzzleDraft,
   validationResult: ValidationResult,
   reviewItems: ReviewItem[] = [],
-  versionReview?: VersionReview
+  versionReview?: VersionReview,
+  reviewRounds: ReviewRound[] = []
 ): string => {
 
   const steps = draft.radioSegment?.playerSteps || [];
@@ -438,12 +443,12 @@ export const generateDeliveryMarkdown = (
   md += `## 玩家操作步骤\n\n`;
   steps.forEach((step, index) => {
     const stepClues = draft.clues.filter(c => c.relatedStep === index);
-    const stepAnswer = draft.answers.find(a => 
-      stepClues.some(c => c.answerId === a.id)
-    );
+    const stepAnswerIds = new Set<string>();
+    stepClues.forEach(c => getClueAnswerIds(c).forEach(id => stepAnswerIds.add(id)));
+    const stepAnswers = Array.from(stepAnswerIds).map(id => draft.answers.find(a => a.id === id)).filter(Boolean) as Answer[];
     md += `### 步骤 ${index + 1}：${step}\n\n`;
-    if (stepAnswer) {
-      md += `- **目标答案**：[${ANSWER_TYPE_LABELS[stepAnswer.type]}] ${stepAnswer.value} - ${stepAnswer.description}\n`;
+    if (stepAnswers.length > 0) {
+      md += `- **目标答案**：${stepAnswers.map(sa => `[${ANSWER_TYPE_LABELS[sa!.type]}] ${sa!.value} - ${sa!.description}`).join('；')}\n`;
     }
     if (stepClues.length > 0) {
       md += `- **支撑线索**：\n`;
@@ -458,21 +463,21 @@ export const generateDeliveryMarkdown = (
   md += `| 序号 | 类型 | 答案值 | 描述 | 关联线索数 |\n`;
   md += `| --- | --- | --- | --- | --- |\n`;
   draft.answers.forEach((answer, index) => {
-    const clueCount = draft.clues.filter(c => c.answerId === answer.id).length;
+    const clueCount = draft.clues.filter(c => getClueAnswerIds(c).includes(answer.id)).length;
     md += `| ${index + 1} | ${ANSWER_TYPE_LABELS[answer.type]} | ${answer.value} | ${answer.description} | ${clueCount} |\n`;
   });
   md += `\n`;
 
   md += `## 线索链\n\n`;
   draft.clues.sort((a, b) => a.order - b.order).forEach((clue, index) => {
-    const answer = draft.answers.find(a => a.id === clue.answerId);
+    const clueAnswers = getClueAnswerIds(clue).map(id => draft.answers.find(a => a.id === id)).filter(Boolean) as Answer[];
     md += `### 线索 ${index + 1}\n\n`;
     md += `- **内容**：${clue.content}\n`;
     md += `- **明显程度**：${HINT_LEVEL_LABELS[clue.hintLevel]}\n`;
     md += `- **线索类型**：${clue.answerType ? ANSWER_TYPE_LABELS[clue.answerType] : '未指定'}\n`;
     md += `- **服务步骤**：第 ${(clue.relatedStep ?? 0) + 1} 步\n`;
-    if (answer) {
-      md += `- **指向答案**：${answer.value}\n`;
+    if (clueAnswers.length > 0) {
+      md += `- **指向答案**：${clueAnswers.map(a => a.value).join('、')}\n`;
     }
     md += `\n`;
   });
@@ -516,8 +521,49 @@ export const generateDeliveryMarkdown = (
     }
   }
 
-  if (reviewItems.length > 0) {
-    md += `## 评审记录\n\n`;
+  if (reviewRounds.length > 0) {
+    md += `## 评审批次记录\n\n`;
+    reviewRounds.forEach((round, roundIdx) => {
+      const conclusionIcon = round.conclusion === 'approved' ? '✅ 通过' : round.conclusion === 'rejected' ? '❌ 打回' : '⏳ 待评审';
+      md += `### 第 ${roundIdx + 1} 轮评审\n\n`;
+      md += `- **评审人**：${round.reviewerName || '未署名'}\n`;
+      md += `- **评审时间**：${new Date(round.reviewDate).toLocaleString('zh-CN')}\n`;
+      md += `- **总体结论**：${conclusionIcon}\n`;
+      if (round.overallComment) {
+        md += `- **总体意见**：\n\n  > ${round.overallComment}\n`;
+      }
+      md += `\n`;
+      
+      const allItems = round.items.length > 0 ? round.items : reviewItems;
+      if (allItems.length > 0) {
+        md += `#### 各段落状态\n\n`;
+        const approvedCount = allItems.filter(i => i.status === 'approved').length;
+        const rejectedCount = allItems.filter(i => i.status === 'rejected').length;
+        const pendingCount = allItems.filter(i => i.status === 'pending').length;
+        md += `> 通过 ${approvedCount} 段 / 打回 ${rejectedCount} 段 / 待评审 ${pendingCount} 段\n\n`;
+        
+        const sections = [...new Set(allItems.map(r => r.section))];
+        sections.forEach(section => {
+          const sectionItems = allItems.filter(r => r.section === section);
+          md += `##### ${REVIEW_SECTION_LABELS[section]}\n\n`;
+          sectionItems.forEach(item => {
+            const statusIcon = item.status === 'approved' ? '✅ 通过' : item.status === 'rejected' ? '❌ 打回' : '⏳ 待评审';
+            md += `- ${statusIcon}`;
+            if (item.itemKey) {
+              md += ` **${item.itemKey}**`;
+            }
+            md += `\n`;
+            if (item.comment) {
+              md += `  > ${item.comment}\n`;
+            }
+          });
+          md += `\n`;
+        });
+      }
+      md += `---\n\n`;
+    });
+  } else if (reviewItems.length > 0) {
+    md += `## 评审记录（未归档）\n\n`;
     const sections = [...new Set(reviewItems.map(r => r.section))];
     sections.forEach(section => {
       const sectionItems = reviewItems.filter(r => r.section === section);

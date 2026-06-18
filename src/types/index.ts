@@ -20,6 +20,7 @@ export interface Clue {
   content: string;
   hintLevel: HintLevel;
   answerId?: string;
+  answerIds?: string[];
   answerType?: AnswerType;
   order: number;
   relatedStep?: number;
@@ -79,6 +80,7 @@ export interface ValidationIssue {
 
 export type ReviewSection = 'broadcast' | 'objective' | 'steps' | 'answers' | 'clues' | 'feedback';
 export type ReviewStatus = 'pending' | 'approved' | 'rejected';
+export type ReviewConclusion = 'approved' | 'rejected' | 'pending';
 
 export interface ReviewItem {
   id: string;
@@ -88,11 +90,23 @@ export interface ReviewItem {
   itemKey?: string;
 }
 
+export interface ReviewRound {
+  id: string;
+  draftId: string;
+  reviewerName: string;
+  reviewDate: Date;
+  conclusion: ReviewConclusion;
+  overallComment: string;
+  items: ReviewItem[];
+}
+
 export interface VersionReview {
   versionId: string;
   notes: string;
   recommendation: string;
   reviewDate: Date;
+  pros?: string[];
+  cons?: string[];
 }
 
 export interface DeliveryPackage {

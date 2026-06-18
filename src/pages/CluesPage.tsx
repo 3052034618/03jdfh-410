@@ -137,7 +137,7 @@ export default function CluesPage() {
     const types: (AnswerType | null)[] = [];
     playerSteps.forEach((step) => {
       let type: AnswerType | null = null;
-      if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM')) {
+      if (step.includes('频率') || step.includes('调频') || step.includes('电台') || step.includes('FM') || step.includes('频段') || step.includes('调到')) {
         type = 'frequency';
       } else if (step.includes('旋钮') || step.includes('旋转') || step.includes('档位')) {
         type = 'knob';
@@ -154,6 +154,15 @@ export default function CluesPage() {
   }, [playerSteps]);
 
   const getAutoRelatedStep = (clueType: AnswerType): number => {
+    if (clueType === 'frequency') {
+      for (let i = 0; i < playerSteps.length; i++) {
+        const step = playerSteps[i];
+        if (step.includes('频率') || step.includes('调频') || step.includes('频段') || step.includes('调到')) {
+          return i;
+        }
+      }
+    }
+    
     const exactMatch = stepTypes.indexOf(clueType);
     if (exactMatch !== -1) return exactMatch;
 
@@ -179,18 +188,21 @@ export default function CluesPage() {
     return `第 ${stepIdx + 1} 步：${playerSteps[stepIdx]?.substring(0, 15) || '未检测到'}...`;
   };
 
+  const addClueAnswer = usePuzzleStore(state => state.addClueAnswer);
+  const removeClueAnswer = usePuzzleStore(state => state.removeClueAnswer);
+
   useEffect(() => {
     if (isLinkMode && selectedClueId && selectedAnswerId) {
       const answer = draft?.answers.find(a => a.id === selectedAnswerId);
-      updateClue(selectedClueId, { 
-        answerId: selectedAnswerId,
+      addClueAnswer(selectedClueId, selectedAnswerId);
+      updateClue(selectedClueId, {
         answerType: answer?.type,
       });
       setSelectedClueId(null);
       setSelectedAnswerId(null);
       setIsLinkMode(false);
     }
-  }, [isLinkMode, selectedClueId, selectedAnswerId, updateClue, draft]);
+  }, [isLinkMode, selectedClueId, selectedAnswerId, addClueAnswer, updateClue, draft]);
 
   if (!draft) {
     return (
@@ -214,8 +226,8 @@ export default function CluesPage() {
   const handleDrop = (answerId: string) => {
     if (draggedClueId) {
       const answer = draft.answers.find(a => a.id === answerId);
-      updateClue(draggedClueId, { 
-        answerId,
+      addClueAnswer(draggedClueId, answerId);
+      updateClue(draggedClueId, {
         answerType: answer?.type,
       });
     }
@@ -263,7 +275,10 @@ export default function CluesPage() {
   };
 
   const getLinkedClues = (answerId: string) => {
-    return draft.clues.filter(c => c.answerId === answerId);
+    return draft.clues.filter(c => 
+      c.answerId === answerId || 
+      (c.answerIds && c.answerIds.includes(answerId))
+    );
   };
 
   const getHintLevelColor = (level: HintLevel): string => {
@@ -280,6 +295,19 @@ export default function CluesPage() {
 
   const getAnswerForClue = (clue: Clue): Answer | undefined => {
     return draft.answers.find(a => a.id === clue.answerId);
+  };
+
+  const getAllAnswersForClue = (clue: Clue): Answer[] => {
+    const ids = clue.answerIds && clue.answerIds.length > 0 
+      ? clue.answerIds 
+      : (clue.answerId ? [clue.answerId] : []);
+    return ids.map(id => draft.answers.find(a => a.id === id)).filter(Boolean) as Answer[];
+  };
+
+  const getClueAnswerIds = (clue: Clue): string[] => {
+    return clue.answerIds && clue.answerIds.length > 0 
+      ? clue.answerIds 
+      : (clue.answerId ? [clue.answerId] : []);
   };
 
   return (
@@ -732,6 +760,8 @@ export default function CluesPage() {
                               {typeClues.length > 0 ? (
                                 typeClues.sort((a, b) => a.order - b.order).map((clue, idx) => {
                                   const answer = getAnswerForClue(clue);
+                                  const allAnswers = getAllAnswersForClue(clue);
+                                  const hasAnswers = allAnswers.length > 0;
                                   return (
                                     <motion.div
                                       key={clue.id}
@@ -745,7 +775,7 @@ export default function CluesPage() {
                                           ? 'border-horror-neonGreen shadow-horror ring-2 ring-horror-neonGreen/30'
                                           : 'border-horror-lightGray/30'
                                       } ${
-                                        clue.answerId
+                                        hasAnswers
                                           ? 'border-l-4 border-l-horror-neonGreen'
                                           : 'border-l-4 border-l-horror-neonRed/50'
                                       } ${
@@ -832,25 +862,45 @@ export default function CluesPage() {
                                             </p>
                                           )}
 
-                                          <div className="mt-2 pt-2 border-t border-horror-lightGray/20 flex items-center justify-between">
-                                            {clue.relatedStep !== undefined && clue.relatedStep !== null ? (
-                                              <span className="font-terminal text-xs text-gray-500">
-                                                服务步骤：第 {clue.relatedStep + 1} 步
-                                              </span>
-                                            ) : (
-                                              <span className="font-terminal text-xs text-gray-600">
-                                                未关联步骤
-                                              </span>
-                                            )}
-                                            {answer ? (
-                                              <span className="font-terminal text-xs text-horror-amber">
-                                                答案：{answer.value}
-                                              </span>
-                                            ) : (
-                                              <span className="font-terminal text-xs text-horror-neonRed">
-                                                未关联答案
-                                              </span>
-                                            )}
+                                          <div className="mt-2 pt-2 border-t border-horror-lightGray/20 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              {clue.relatedStep !== undefined && clue.relatedStep !== null ? (
+                                                <span className="font-terminal text-xs text-gray-500">
+                                                  服务步骤：第 {clue.relatedStep + 1} 步
+                                                </span>
+                                              ) : (
+                                                <span className="font-terminal text-xs text-gray-600">
+                                                  未关联步骤
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center flex-wrap gap-2">
+                                              <span className="font-terminal text-xs text-gray-500 flex-shrink-0">关联答案：</span>
+                                              {allAnswers.length > 0 ? (
+                                                allAnswers.map((ans) => (
+                                                  <span
+                                                    key={ans.id}
+                                                    className={`px-2 py-0.5 rounded text-xs font-terminal border flex items-center gap-1 ${ANSWER_TYPE_COLORS[ans.type].bg} ${ANSWER_TYPE_COLORS[ans.type].text} ${ANSWER_TYPE_COLORS[ans.type].border}`}
+                                                  >
+                                                    {ans.value}
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeClueAnswer(clue.id, ans.id);
+                                                      }}
+                                                      className="hover:text-horror-neonRed transition-colors"
+                                                      title="移除此关联"
+                                                    >
+                                                      <X className="w-3 h-3" />
+                                                    </button>
+                                                  </span>
+                                                ))
+                                              ) : (
+                                                <span className="font-terminal text-xs text-horror-neonRed">
+                                                  未关联答案
+                                                </span>
+                                              )}
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
@@ -1158,9 +1208,7 @@ export default function CluesPage() {
                             if (confirm('确定删除这个答案吗？相关线索的关联也会被清除。')) {
                               removeAnswer(answer.id);
                               draft.clues.forEach(clue => {
-                                if (clue.answerId === answer.id) {
-                                  updateClue(clue.id, { answerId: undefined });
-                                }
+                                removeClueAnswer(clue.id, answer.id);
                               });
                             }
                           }}
@@ -1234,8 +1282,9 @@ export default function CluesPage() {
         </h3>
         <div className="flex items-start justify-center gap-4 overflow-x-auto pb-4">
           {draft.clues.sort((a, b) => a.order - b.order).map((clue, index) => {
-            const answer = draft.answers.find(a => a.id === clue.answerId);
+            const allAnswers = getAllAnswersForClue(clue);
             const colors = ANSWER_TYPE_COLORS[clue.answerType || 'code'];
+            const hasAnswers = allAnswers.length > 0;
             return (
               <div key={clue.id} className="flex items-center">
                 <motion.div
@@ -1245,7 +1294,7 @@ export default function CluesPage() {
                   className="flex flex-col items-center"
                 >
                   <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 ${
-                    clue.answerId
+                    hasAnswers
                       ? `${colors.bg} border-2 ${colors.border}`
                       : 'bg-horror-gray border-2 border-horror-lightGray/50'
                   }`}>
@@ -1261,18 +1310,28 @@ export default function CluesPage() {
                       {clue.content}
                     </p>
                   </div>
-                  {answer && (
+                  {hasAnswers && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className={`mt-2 p-2 ${colors.bg} ${colors.border} border rounded`}
+                      className="mt-2 space-y-1 max-w-32"
                     >
-                      <div className={`text-xs font-terminal ${colors.text}`}>
-                        {ANSWER_TYPE_LABELS[answer.type]}
-                      </div>
-                      <div className="font-terminal text-sm text-horror-neonGreen">
-                        {answer.value}
-                      </div>
+                      {allAnswers.map((ans) => {
+                        const ansColors = ANSWER_TYPE_COLORS[ans.type];
+                        return (
+                          <div
+                            key={ans.id}
+                            className={`p-1.5 ${ansColors.bg} ${ansColors.border} border rounded text-center`}
+                          >
+                            <div className={`text-xs font-terminal ${ansColors.text}`}>
+                              {ANSWER_TYPE_LABELS[ans.type]}
+                            </div>
+                            <div className="font-terminal text-sm text-horror-neonGreen truncate">
+                              {ans.value}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </motion.div>
                   )}
                 </motion.div>

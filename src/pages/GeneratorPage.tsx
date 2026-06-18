@@ -4,7 +4,7 @@ import {
   Radio, MapPin, User, Volume2, AlertTriangle, Plus, X, Sparkles, 
   ArrowRight, Target, ListTodo, Layers, Check, Trash2, 
   ChevronDown, ChevronUp, Copy, RefreshCw, GitCompare, CheckCircle2,
-  FileText
+  FileText, ThumbsUp, ThumbsDown, Save, Trophy
 } from 'lucide-react';
 import { usePuzzleStore } from '@/store/puzzleStore';
 import { RadioKnob, SpectrumVisualizer, TypewriterText } from '@/components';
@@ -23,6 +23,7 @@ import {
   type BroadcastTone,
   type PuzzleVersion,
   type ReviewSection,
+  type ReviewConclusion,
 } from '@/types';
 
 export default function GeneratorPage() {
@@ -55,6 +56,9 @@ export default function GeneratorPage() {
     setReviewItem,
     clearReviewItems,
     appliedVersionReview,
+    addReviewRound,
+    getCurrentDraftReviewRounds,
+    reviewRounds,
   } = usePuzzleStore();
 
   const draft = getCurrentDraft();
@@ -75,6 +79,14 @@ export default function GeneratorPage() {
   const [versionNotes, setVersionNotes] = useState('');
   const [versionRecommendation, setVersionRecommendation] = useState('');
   const [rejectComment, setRejectComment] = useState<Record<string, string>>({});
+  const [reviewerName, setReviewerName] = useState('');
+  const [overallComment, setOverallComment] = useState('');
+  const [reviewConclusion, setReviewConclusion] = useState<ReviewConclusion>('pending');
+  const [showSaveReviewSuccess, setShowSaveReviewSuccess] = useState(false);
+  const [editingProsConsVersion, setEditingProsConsVersion] = useState<string | null>(null);
+  const [versionProsInput, setVersionProsInput] = useState('');
+  const [versionConsInput, setVersionConsInput] = useState('');
+  const [recommendedVersionId, setRecommendedVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!draft) {
@@ -196,11 +208,22 @@ export default function GeneratorPage() {
     });
   };
 
+  const currentDraftReviewRounds = useMemo(() => {
+    if (!draft) return [];
+    return reviewRounds.filter(r => r.draftId === draft.id);
+  }, [reviewRounds, draft]);
+
   const handleCopyDelivery = async () => {
     if (!draft) return;
     
     const validation = validateClueChain(draft);
-    const markdown = generateDeliveryMarkdown(draft, validation, reviewItems, appliedVersionReview);
+    const markdown = generateDeliveryMarkdown(
+      draft, 
+      validation, 
+      reviewItems, 
+      appliedVersionReview,
+      currentDraftReviewRounds
+    );
     
     try {
       await navigator.clipboard.writeText(markdown);
@@ -227,8 +250,31 @@ export default function GeneratorPage() {
     setVersionRecommendation('');
   };
 
+  const handleStartEditProsCons = (version: PuzzleVersion) => {
+    setEditingProsConsVersion(version.id);
+    setVersionProsInput(version.review?.pros?.join('\n') || '');
+    setVersionConsInput(version.review?.cons?.join('\n') || '');
+  };
+
+  const handleSaveProsCons = (versionId: string) => {
+    const version = versions.find(v => v.id === versionId);
+    updateVersionReview(versionId, {
+      pros: versionProsInput.trim() ? versionProsInput.split('\n').filter(Boolean) : undefined,
+      cons: versionConsInput.trim() ? versionConsInput.split('\n').filter(Boolean) : undefined,
+      notes: version?.review?.notes || '',
+      recommendation: version?.review?.recommendation || '',
+    });
+    setEditingProsConsVersion(null);
+    setVersionProsInput('');
+    setVersionConsInput('');
+  };
+
   const handleReviewSection = (section: ReviewSection, status: 'approved' | 'rejected', itemKey?: string) => {
     const commentKey = itemKey ? `${section}-${itemKey}` : section;
+    if (status === 'rejected' && !rejectComment[commentKey]?.trim()) {
+      alert('打回时请填写修改意见');
+      return;
+    }
     setReviewItem({
       id: `${commentKey}-${Date.now()}`,
       section,
@@ -238,6 +284,32 @@ export default function GeneratorPage() {
     });
     setRejectComment(prev => ({ ...prev, [commentKey]: '' }));
   };
+
+  const handleSaveReviewRound = () => {
+    if (!reviewerName.trim()) {
+      alert('请填写评审人姓名');
+      return;
+    }
+    if (reviewConclusion === 'pending') {
+      alert('请选择总体结论');
+      return;
+    }
+    addReviewRound({
+      reviewerName: reviewerName.trim(),
+      conclusion: reviewConclusion,
+      overallComment: overallComment.trim(),
+      items: [...reviewItems],
+    });
+    setShowSaveReviewSuccess(true);
+    setTimeout(() => setShowSaveReviewSuccess(false), 2000);
+  };
+
+  const reviewSummary = useMemo(() => {
+    const approved = reviewItems.filter(r => r.status === 'approved').length;
+    const rejected = reviewItems.filter(r => r.status === 'rejected').length;
+    const pending = 6 - approved - rejected;
+    return { approved, rejected, pending: Math.max(0, pending) };
+  }, [reviewItems]);
 
   const selectedVersion = useMemo(() => {
     return versions.find(v => v.id === selectedVersionId);
@@ -970,6 +1042,95 @@ export default function GeneratorPage() {
                                       )}
                                     </div>
                                   )}
+
+                                  {(version.review?.pros || version.review?.cons) && (
+                                    <div className="mb-2 space-y-1.5">
+                                      {version.review.pros && version.review.pros.length > 0 && (
+                                        <div className="p-2 bg-horror-neonGreen/5 border border-horror-neonGreen/20 rounded">
+                                          <div className="flex items-center gap-1 mb-1">
+                                            <ThumbsUp className="w-3 h-3 text-horror-neonGreen" />
+                                            <span className="font-terminal text-xs text-horror-neonGreen">优点</span>
+                                          </div>
+                                          <ul className="space-y-0.5">
+                                            {version.review.pros.map((pro, i) => (
+                                              <li key={i} className="font-terminal text-xs text-gray-300 pl-4 relative">
+                                                <span className="absolute left-0">·</span>
+                                                {pro}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {version.review.cons && version.review.cons.length > 0 && (
+                                        <div className="p-2 bg-horror-neonRed/5 border border-horror-neonRed/20 rounded">
+                                          <div className="flex items-center gap-1 mb-1">
+                                            <ThumbsDown className="w-3 h-3 text-horror-neonRed" />
+                                            <span className="font-terminal text-xs text-horror-neonRed">缺点</span>
+                                          </div>
+                                          <ul className="space-y-0.5">
+                                            {version.review.cons.map((con, i) => (
+                                              <li key={i} className="font-terminal text-xs text-gray-300 pl-4 relative">
+                                                <span className="absolute left-0">·</span>
+                                                {con}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {editingProsConsVersion === version.id ? (
+                                    <div className="space-y-2 mb-2">
+                                      <div>
+                                        <label className="font-terminal text-xs text-gray-500 block mb-1">优点（每行一条）</label>
+                                        <textarea
+                                          value={versionProsInput}
+                                          onChange={(e) => setVersionProsInput(e.target.value)}
+                                          placeholder="&#10;例如：&#10;广播文本氛围感强&#10;线索链逻辑清晰"
+                                          rows={3}
+                                          className="w-full px-2 py-1.5 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-xs text-gray-200 focus:outline-none focus:border-horror-neonGreen/50 resize-none"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="font-terminal text-xs text-gray-500 block mb-1">缺点（每行一条）</label>
+                                        <textarea
+                                          value={versionConsInput}
+                                          onChange={(e) => setVersionConsInput(e.target.value)}
+                                          placeholder="&#10;例如：&#10;频率线索不明显&#10;缺少失败反馈"
+                                          rows={3}
+                                          className="w-full px-2 py-1.5 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-xs text-gray-200 focus:outline-none focus:border-horror-neonRed/50 resize-none"
+                                        />
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => handleSaveProsCons(version.id)}
+                                          className="flex-1 py-1.5 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 rounded text-xs font-terminal text-horror-neonGreen transition-colors"
+                                        >
+                                          保存优缺点
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setEditingProsConsVersion(null);
+                                            setVersionProsInput('');
+                                            setVersionConsInput('');
+                                          }}
+                                          className="flex-1 py-1.5 bg-horror-gray hover:bg-horror-lightGray rounded text-xs font-terminal text-gray-400 transition-colors"
+                                        >
+                                          取消
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleStartEditProsCons(version)}
+                                      className="w-full py-1.5 mb-2 bg-horror-gray/50 hover:bg-horror-gray border border-horror-lightGray/30 rounded text-xs font-terminal text-gray-400 hover:text-gray-200 transition-colors flex items-center justify-center gap-1"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      {(version.review?.pros || version.review?.cons) ? '编辑优缺点' : '标记优缺点'}
+                                    </button>
+                                  )}
+
                                   <button
                                     onClick={() => handleStartEditReview(version)}
                                     className="w-full py-1.5 bg-horror-amber/10 hover:bg-horror-amber/20 border border-horror-amber/30 rounded text-xs font-terminal text-horror-amber transition-colors flex items-center justify-center gap-1"
@@ -1015,6 +1176,102 @@ export default function GeneratorPage() {
                       ))}
                     </div>
                   </div>
+
+                  {compareVersions.length >= 2 && (
+                    <div className="p-4 border-t border-horror-lightGray/30 bg-horror-amber/5">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-terminal text-base text-horror-amber flex items-center gap-2">
+                          <Trophy className="w-4 h-4" />
+                          推荐决策区
+                        </h4>
+                        <div className="text-xs font-terminal text-gray-500">
+                          公平性评分差异：最高 {Math.max(...compareVersions.map(v => v.fairnessScore))} / 最低 {Math.min(...compareVersions.map(v => v.fairnessScore))}（差 {Math.max(...compareVersions.map(v => v.fairnessScore)) - Math.min(...compareVersions.map(v => v.fairnessScore))} 分）
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="retro-card rounded-lg p-3 border border-horror-neonGreen/30 bg-horror-neonGreen/5">
+                          <div className="font-terminal text-xs text-horror-neonGreen mb-2 flex items-center gap-1">
+                            <ThumbsUp className="w-3.5 h-3.5" /> 优点汇总
+                          </div>
+                          <ul className="space-y-1">
+                            {compareVersions.flatMap(v => 
+                              (v.review?.pros || []).map((pro, i) => (
+                                <li key={`${v.id}-pro-${i}`} className="text-xs font-terminal text-gray-300 pl-4 relative">
+                                  <span className="absolute left-0 text-horror-neonGreen">·</span>
+                                  「版本 {v.versionNumber}」{pro}
+                                </li>
+                              ))
+                            )}
+                            {compareVersions.flatMap(v => v.review?.pros || []).length === 0 && (
+                              <li className="text-xs font-terminal text-gray-500">暂未标记优点，请在上方为每个版本标记优缺点</li>
+                            )}
+                          </ul>
+                        </div>
+                        <div className="retro-card rounded-lg p-3 border border-horror-neonRed/30 bg-horror-neonRed/5">
+                          <div className="font-terminal text-xs text-horror-neonRed mb-2 flex items-center gap-1">
+                            <ThumbsDown className="w-3.5 h-3.5" /> 缺点汇总
+                          </div>
+                          <ul className="space-y-1">
+                            {compareVersions.flatMap(v => 
+                              (v.review?.cons || []).map((con, i) => (
+                                <li key={`${v.id}-con-${i}`} className="text-xs font-terminal text-gray-300 pl-4 relative">
+                                  <span className="absolute left-0 text-horror-neonRed">·</span>
+                                  「版本 {v.versionNumber}」{con}
+                                </li>
+                              ))
+                            )}
+                            {compareVersions.flatMap(v => v.review?.cons || []).length === 0 && (
+                              <li className="text-xs font-terminal text-gray-500">暂未标记缺点</li>
+                            )}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-terminal text-gray-400 mb-2">选择最终推荐版本（设为草稿后会带入交付包）</label>
+                        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${compareVersions.length}, 1fr)` }}>
+                          {compareVersions.map((version) => (
+                            <button
+                              key={version.id}
+                              onClick={() => {
+                                setRecommendedVersionId(version.id);
+                                handleApplyVersion(version.id);
+                              }}
+                              className={`p-3 rounded-lg text-left transition-all duration-300 ${
+                                recommendedVersionId === version.id || selectedVersionId === version.id
+                                  ? 'bg-horror-amber/20 border-2 border-horror-amber ring-2 ring-horror-amber/30'
+                                  : 'bg-horror-gray border border-horror-lightGray/30 hover:border-horror-amber/50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-horror text-lg text-horror-amber">
+                                  版本 {version.versionNumber}
+                                </span>
+                                <span className={`text-xs font-terminal ${getScoreColor(version.fairnessScore)}`}>
+                                  {version.fairnessScore}分
+                                </span>
+                              </div>
+                              {version.review?.recommendation ? (
+                                <p className="font-terminal text-xs text-gray-300 line-clamp-2">
+                                  {version.review.recommendation}
+                                </p>
+                              ) : (
+                                <p className="font-terminal text-xs text-gray-500 italic">
+                                  （未填写推荐理由）
+                                </p>
+                              )}
+                              {(recommendedVersionId === version.id || selectedVersionId === version.id) && (
+                                <div className="mt-2 flex items-center gap-1 text-xs font-terminal text-horror-amber">
+                                  <Trophy className="w-3 h-3" /> 推荐版 / 当前草稿
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1267,7 +1524,115 @@ export default function GeneratorPage() {
                 </div>
 
                 {reviewMode ? (
-                  <div className="space-y-4">
+                  <div className="space-y-6">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="retro-card rounded-lg p-5 border-2 border-horror-amber/30 bg-horror-amber/5"
+                    >
+                      <h4 className="font-terminal text-base text-horror-amber mb-4 flex items-center gap-2">
+                        <Save className="w-4 h-4" />
+                        评审信息归档
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label className="block text-xs font-terminal text-gray-400 mb-1">评审人 *</label>
+                          <input
+                            type="text"
+                            value={reviewerName}
+                            onChange={(e) => setReviewerName(e.target.value)}
+                            placeholder="请输入评审人姓名"
+                            className="w-full px-3 py-2 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-sm text-gray-200 focus:outline-none focus:border-horror-amber/50"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-terminal text-gray-400 mb-1">总体结论 *</label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setReviewConclusion('approved')}
+                              className={`flex-1 px-3 py-2 rounded font-terminal text-sm transition-colors flex items-center justify-center gap-1 ${
+                                reviewConclusion === 'approved'
+                                  ? 'bg-horror-neonGreen/20 border border-horror-neonGreen text-horror-neonGreen'
+                                  : 'bg-horror-gray border border-horror-lightGray/30 text-gray-400 hover:text-gray-200'
+                              }`}
+                            >
+                              <ThumbsUp className="w-4 h-4" /> 通过
+                            </button>
+                            <button
+                              onClick={() => setReviewConclusion('rejected')}
+                              className={`flex-1 px-3 py-2 rounded font-terminal text-sm transition-colors flex items-center justify-center gap-1 ${
+                                reviewConclusion === 'rejected'
+                                  ? 'bg-horror-neonRed/20 border border-horror-neonRed text-horror-neonRed'
+                                  : 'bg-horror-gray border border-horror-lightGray/30 text-gray-400 hover:text-gray-200'
+                              }`}
+                            >
+                              <ThumbsDown className="w-4 h-4" /> 打回
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mb-4">
+                        <label className="block text-xs font-terminal text-gray-400 mb-1">总体意见</label>
+                        <textarea
+                          value={overallComment}
+                          onChange={(e) => setOverallComment(e.target.value)}
+                          placeholder="总体评审意见（可选）..."
+                          rows={2}
+                          className="w-full px-3 py-2 bg-horror-dark border border-horror-lightGray/50 rounded font-terminal text-sm text-gray-200 focus:outline-none focus:border-horror-amber/50 resize-none"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div className="flex items-center gap-4 text-xs font-terminal">
+                          <span className="text-horror-neonGreen">✓ 通过 {reviewSummary.approved} 段</span>
+                          <span className="text-horror-neonRed">✗ 打回 {reviewSummary.rejected} 段</span>
+                          <span className="text-gray-400">⏳ 待评 {reviewSummary.pending} 段</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {showSaveReviewSuccess && (
+                            <span className="text-xs font-terminal text-horror-neonGreen flex items-center gap-1">
+                              <Check className="w-4 h-4" /> 已保存！
+                            </span>
+                          )}
+                          <button
+                            onClick={handleSaveReviewRound}
+                            className="px-4 py-2 bg-horror-amber/20 hover:bg-horror-amber/30 border border-horror-amber/50 rounded font-terminal text-sm text-horror-amber transition-colors flex items-center gap-1"
+                          >
+                            <Save className="w-4 h-4" /> 保存评审批次
+                          </button>
+                        </div>
+                      </div>
+                      {currentDraftReviewRounds.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-horror-lightGray/30">
+                          <div className="text-xs font-terminal text-gray-500 mb-2">
+                            历史评审（{currentDraftReviewRounds.length} 轮）：
+                          </div>
+                          <div className="space-y-2 max-h-40 overflow-y-auto">
+                            {currentDraftReviewRounds.slice().reverse().map((round, idx) => (
+                              <div key={round.id} className="p-2 bg-horror-gray/50 rounded border border-horror-lightGray/20">
+                                <div className="flex items-center justify-between text-xs font-terminal mb-1">
+                                  <span className="text-gray-300">
+                                    第 {currentDraftReviewRounds.length - idx} 轮 · {round.reviewerName}
+                                  </span>
+                                  <span className={round.conclusion === 'approved' ? 'text-horror-neonGreen' : 'text-horror-neonRed'}>
+                                    {round.conclusion === 'approved' ? '✅ 通过' : round.conclusion === 'rejected' ? '❌ 打回' : '⏳ 待评'}
+                                  </span>
+                                </div>
+                                <div className="text-xs font-terminal text-gray-500">
+                                  {new Date(round.reviewDate).toLocaleString('zh-CN')}
+                                  {round.overallComment && ` · ${round.overallComment.substring(0, 30)}...`}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+
+                    <h4 className="font-terminal text-sm text-gray-400 border-b border-horror-lightGray/30 pb-2">
+                      逐段评审
+                    </h4>
+
+                    <div className="space-y-4">
                     {(['broadcast', 'objective', 'steps', 'answers', 'clues', 'feedback'] as ReviewSection[]).map((section) => {
                       const sectionReview = reviewItems.find(r => r.section === section);
                       const commentKey = section;
@@ -1343,11 +1708,12 @@ export default function GeneratorPage() {
                         </motion.div>
                       );
                     })}
+                    </div>
                   </div>
                 ) : (
                   <div className="retro-card rounded-lg p-6 bg-horror-gray/30">
                     <pre className="font-terminal text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">
-                      {draft && generateDeliveryMarkdown(draft, validateClueChain(draft), reviewItems, appliedVersionReview)}
+                      {draft && generateDeliveryMarkdown(draft, validateClueChain(draft), reviewItems, appliedVersionReview, currentDraftReviewRounds)}
                     </pre>
                   </div>
                 )}
