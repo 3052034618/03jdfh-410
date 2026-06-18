@@ -9,6 +9,7 @@ import type {
   Answer,
   PlayerFeedback,
   GenerationParams,
+  PuzzleVersion,
 } from '@/types';
 import { generateId } from '@/utils/helpers';
 
@@ -17,6 +18,8 @@ interface PuzzleState {
   currentDraftId: string | null;
   generationParams: GenerationParams;
   isGenerating: boolean;
+  versions: PuzzleVersion[];
+  selectedVersionId: string | null;
   
   getCurrentDraft: () => PuzzleDraft | null;
   createNewDraft: () => void;
@@ -49,6 +52,12 @@ interface PuzzleState {
   
   setIsGenerating: (isGenerating: boolean) => void;
   resetGenerationParams: () => void;
+  
+  addVersion: (version: Omit<PuzzleVersion, 'id' | 'versionNumber' | 'createdAt'>) => void;
+  selectVersion: (versionId: string) => void;
+  applyVersionToDraft: (versionId: string) => void;
+  deleteVersion: (versionId: string) => void;
+  clearVersions: () => void;
 }
 
 const defaultGenerationParams: GenerationParams = {
@@ -83,6 +92,8 @@ export const usePuzzleStore = create<PuzzleState>()(
       currentDraftId: null,
       generationParams: { ...defaultGenerationParams },
       isGenerating: false,
+      versions: [],
+      selectedVersionId: null,
       
       getCurrentDraft: () => {
         const { drafts, currentDraftId } = get();
@@ -94,6 +105,8 @@ export const usePuzzleStore = create<PuzzleState>()(
         set(state => ({
           drafts: [...state.drafts, newDraft],
           currentDraftId: newDraft.id,
+          versions: [],
+          selectedVersionId: null,
           generationParams: {
             chapterPosition: newDraft.chapterPosition,
             playerKnownInfo: [...newDraft.playerKnownInfo],
@@ -109,6 +122,8 @@ export const usePuzzleStore = create<PuzzleState>()(
         if (draft) {
           set({
             currentDraftId: id,
+            versions: [],
+            selectedVersionId: null,
             generationParams: {
               chapterPosition: draft.chapterPosition,
               playerKnownInfo: [...draft.playerKnownInfo],
@@ -124,6 +139,8 @@ export const usePuzzleStore = create<PuzzleState>()(
         set(state => ({
           drafts: state.drafts.filter(d => d.id !== id),
           currentDraftId: state.currentDraftId === id ? null : state.currentDraftId,
+          versions: state.currentDraftId === id ? [] : state.versions,
+          selectedVersionId: state.currentDraftId === id ? null : state.selectedVersionId,
         }));
       },
       
@@ -445,6 +462,61 @@ export const usePuzzleStore = create<PuzzleState>()(
       
       resetGenerationParams: () => {
         set({ generationParams: { ...defaultGenerationParams } });
+      },
+      
+      addVersion: (versionData) => {
+        set(state => {
+          const newVersion: PuzzleVersion = {
+            ...versionData,
+            id: generateId(),
+            versionNumber: state.versions.length + 1,
+            createdAt: new Date(),
+          };
+          return {
+            versions: [...state.versions, newVersion],
+            selectedVersionId: newVersion.id,
+          };
+        });
+      },
+      
+      selectVersion: (versionId) => {
+        set({ selectedVersionId: versionId });
+      },
+      
+      applyVersionToDraft: (versionId) => {
+        const version = get().versions.find(v => v.id === versionId);
+        if (!version) return;
+        
+        set(state => ({
+          drafts: state.drafts.map(d =>
+            d.id === state.currentDraftId
+              ? {
+                  ...d,
+                  radioSegment: version.radioSegment,
+                  clues: version.clues.map(c => ({ ...c })),
+                  answers: version.answers.map(a => ({ ...a })),
+                  playerFeedback: version.playerFeedback.map(f => ({ ...f })),
+                  updatedAt: new Date(),
+                }
+              : d
+          ),
+        }));
+      },
+      
+      deleteVersion: (versionId) => {
+        set(state => {
+          const newVersions = state.versions.filter(v => v.id !== versionId);
+          return {
+            versions: newVersions,
+            selectedVersionId: state.selectedVersionId === versionId 
+              ? (newVersions.length > 0 ? newVersions[newVersions.length - 1].id : null)
+              : state.selectedVersionId,
+          };
+        });
+      },
+      
+      clearVersions: () => {
+        set({ versions: [], selectedVersionId: null });
       },
     }),
     {

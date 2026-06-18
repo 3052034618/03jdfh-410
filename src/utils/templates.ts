@@ -1,4 +1,4 @@
-import type { BroadcastTone, ChapterPosition } from '@/types';
+import type { BroadcastTone, ChapterPosition, AnswerType, KnownInfoCategory } from '@/types';
 import { pickRandom, getRandomInt } from './helpers';
 
 interface BroadcastTemplate {
@@ -97,27 +97,28 @@ const whisperTemplates: BroadcastTemplate = {
 
 const distortedTemplates: BroadcastTemplate = {
   openings: [
-    '[严重失真] {频率}... {keyword}... {信号}... {answer}...',
-    '[断断续续] 测... 测试... {keyword}... 收... 收到吗...',
-    '[倒放的声音正放着] 来过里这在你果如... {answer}... 是案答...',
+    '[严重失真] ...率{frequency}... {keyword}... ...号信... {answer}...',
+    '[断断续续] 测... 试测... 试... {keyword}... 收... 你到吗...',
+    '[倒放的声音] ...来过里这在你果如... {answer} ...是案答...',
     '[多重声音重叠] 欢迎欢迎欢迎... 来到来到来到... {keyword}{keyword}{keyword}...',
   ],
   middles: [
-    '{keyword} [静电] {frequency} [尖叫] {answer} [倒放的童谣]',
-    '数字... 不... 不是数字... {keyword}... 是{keyword}... 不... 是{answer}...',
+    '{keyword} [静电干扰] {frequency} [尖叫声] {answer} [倒放的童谣片段]',
+    '...数字... 不... 不是数字... {keyword}... 是{keyword}... 不... 是{answer}...',
     '[声音上下起伏] 旋钮在{answer}的位置... 不要动... 它喜欢{keyword}...',
     '[前后颠倒的句子] 听我听我听我... 不要不要不要... {keyword}...',
+    '[破碎的句子] ...磁带... {keyword}... 第{answer}面... 小心...',
   ],
   endings: [
     '[完全被静电淹没，只剩几个字清晰] {answer}... {answer}... {answer}...',
     '[声音逐渐变慢，音调变低] 再... 见... {keyword}... 再... 见...',
-    '[突然变成正常声音] 你不会记得这些的。[然后又变回失真] {answer}...',
-    '[无数个声音同时说话] 调频{frequency}调频{frequency}调频{frequency}调频{frequency}...',
+    '[突然变成正常声音，然后又变回失真] 你不会记得这些的。{answer}...',
+    '[无数个声音同时说话] 调频{frequency}调频{frequency}调频{frequency}...',
   ],
   staticNoises: [
     '[剧烈的信号丢失]',
-    '[数字失真]',
-    '[声音变慢]',
+    '[数字失真声]',
+    '[声音变慢效果]',
     '[倒放效果]',
     '[多重回声]',
   ],
@@ -162,24 +163,147 @@ const puzzleObjectives = [
 ];
 
 const playerSteps = [
-  '打开收音机，调到{frequency}频段',
-  '仔细收听广播内容，记录出现的数字',
-  '注意{keyword}出现的次数，这可能是线索',
-  '尝试倒放磁带片段，寻找隐藏信息',
-  '调整收音机旋钮，对应线索中的数字{answer}',
-  '在{time}准时收听关键信息',
-  '将所有数字组合起来，得到最终答案{answer}',
+  { step: '打开收音机，调到{frequency}频段', answerType: 'frequency' as AnswerType },
+  { step: '仔细收听广播内容，记录出现的数字', answerType: 'code' as AnswerType },
+  { step: '注意{keyword}出现的次数，这可能是线索', answerType: 'code' as AnswerType },
+  { step: '尝试倒放磁带片段，寻找隐藏信息', answerType: 'tape' as AnswerType },
+  { step: '调整收音机旋钮，对应线索中的数字{answer}', answerType: 'knob' as AnswerType },
+  { step: '在{time}准时收听关键信息', answerType: 'time' as AnswerType },
+  { step: '将所有数字组合起来，得到最终答案{answer}', answerType: 'code' as AnswerType },
 ];
 
 const cluePatterns = [
-  { pattern: '{keyword}出现在第{number}次', hintLevel: 'subtle' as const },
-  { pattern: '时间指向{time}', hintLevel: 'moderate' as const },
-  { pattern: '频率稳定在{frequency}', hintLevel: 'obvious' as const },
-  { pattern: '重复了{number}遍', hintLevel: 'subtle' as const },
-  { pattern: '旋钮指向{number}点钟方向', hintLevel: 'moderate' as const },
-  { pattern: '磁带第{number}分钟有异常', hintLevel: 'moderate' as const },
-  { pattern: '答案是{answer}', hintLevel: 'obvious' as const },
+  { pattern: '{keyword}出现在第{number}次', hintLevel: 'subtle' as const, answerType: 'code' as AnswerType },
+  { pattern: '时间指向{time}', hintLevel: 'moderate' as const, answerType: 'time' as AnswerType },
+  { pattern: '频率稳定在{frequency}', hintLevel: 'obvious' as const, answerType: 'frequency' as AnswerType },
+  { pattern: '重复了{number}遍', hintLevel: 'subtle' as const, answerType: 'code' as AnswerType },
+  { pattern: '旋钮指向{number}点钟方向', hintLevel: 'moderate' as const, answerType: 'knob' as AnswerType },
+  { pattern: '磁带第{number}分钟有异常', hintLevel: 'moderate' as const, answerType: 'tape' as AnswerType },
+  { pattern: '答案是{answer}', hintLevel: 'obvious' as const, answerType: 'code' as AnswerType },
+  { pattern: '把频率的数字加起来等于{answer}', hintLevel: 'subtle' as const, answerType: 'frequency' as AnswerType },
+  { pattern: '旋钮需要旋转{number}格', hintLevel: 'moderate' as const, answerType: 'knob' as AnswerType },
+  { pattern: '磁带按{answer}的顺序播放', hintLevel: 'obvious' as const, answerType: 'tape' as AnswerType },
 ];
+
+const knownInfoIntegrations: Record<KnownInfoCategory, { openings: string[]; middles: string[]; steps: string[] }> = {
+  tape: {
+    openings: [
+      '你拿出那盘旧磁带，塞进了收音机...',
+      '磁带开始转动，这是你找到的那盘...',
+    ],
+    middles: [
+      '这盘磁带... 你之前听过，但这次不一样...',
+      '磁带里的声音... 和你记忆中的不一样了...',
+      '旧磁带上的标签已经褪色，但你认得那个笔迹...',
+    ],
+    steps: [
+      '将旧磁带放入收音机中播放',
+      '注意磁带播放时的异常噪音',
+      '尝试将磁带倒放收听',
+    ],
+  },
+  radio: {
+    openings: [
+      '你转动那台老式收音机的旋钮，搜寻着信号...',
+      '老旧的收音机发出熟悉的嗡鸣声...',
+    ],
+    middles: [
+      '这台收音机... 是你爷爷留下的...',
+      '收音机的刻度盘上，有一个频率被反复标记过...',
+      '收音机的旋钮有点松动，好像经常被转到某个位置...',
+    ],
+    steps: [
+      '用你那台老式收音机搜索频率',
+      '注意收音机刻度盘上的标记',
+      '调整收音机旋钮找到清晰的信号',
+    ],
+  },
+  document: {
+    openings: [
+      '你翻开那张旧报纸，旁边的收音机突然响了起来...',
+      '匿名信件上提到的频率... 真的存在...',
+    ],
+    middles: [
+      '报纸上的日期... 和广播里说的一样...',
+      '信件上的字迹... 为什么和广播里的声音感觉一样...',
+      '旧报纸的夹缝里，夹着一张写着数字的纸条...',
+    ],
+    steps: [
+      '对照旧报纸上的日期验证线索',
+      '查阅匿名信件中提到的信息',
+      '将报纸上的数字与广播内容对比',
+    ],
+  },
+  name: {
+    openings: [
+      '当你听到那个名字的时候，浑身的血液都凝固了...',
+      '{keyword}... 你知道这个名字...',
+    ],
+    middles: [
+      '主播的名字... 你在哪里听过...',
+      '那个名字... 是三年前失踪的人...',
+      '为什么广播里会提到{keyword}的名字...',
+    ],
+    steps: [
+      '回忆你知道的那个名字相关的信息',
+      '调查主播的背景',
+      '找出名字与数字之间的关联',
+    ],
+  },
+  history: {
+    openings: [
+      '这个城镇的传说... 原来是真的...',
+      '你一直以为那些历史只是故事...',
+    ],
+    middles: [
+      '三十年前的那件事... 和现在发生的一模一样...',
+      '城镇的历史中，这个频率一直被诅咒着...',
+      '老人们说的没错... 午夜的收音机不能随便听...',
+    ],
+    steps: [
+      '回忆城镇历史中关于这个电台的传说',
+      '找出历史事件与当前线索的关联',
+      '根据历史记录推测正确答案',
+    ],
+  },
+  symbol: {
+    openings: [
+      '你看到那个符号的时候，收音机自动打开了...',
+      '奇怪的符号... 在广播声中变得清晰...',
+    ],
+    middles: [
+      '那个符号... 代表着数字{answer}...',
+      '符号在静电中反复出现... 好像在暗示什么...',
+      '你之前看到的符号... 现在出现在了广播里...',
+    ],
+    steps: [
+      '破译奇怪符号对应的数字含义',
+      '将符号与频率数字对应起来',
+      '根据符号的顺序推断答案',
+    ],
+  },
+  phone: {
+    openings: [
+      '电话铃响了... 和收音机里的声音同步...',
+      '那个电话号码... 你记得很清楚...',
+    ],
+    middles: [
+      '电话号码的后四位... 是{answer}...',
+      '电话里的声音和广播里的... 是同一个人...',
+      '你拨打那个号码... 收音机里传来了拨号音...',
+    ],
+    steps: [
+      '拨打你知道的那个电话号码',
+      '将电话号码与频率数字对比',
+      '注意电话铃声和广播的同步关系',
+    ],
+  },
+  other: {
+    openings: [],
+    middles: [],
+    steps: [],
+  },
+};
 
 export const getRandomFrequency = (): string => {
   const freq = getRandomInt(88, 108);
@@ -210,7 +334,7 @@ export const getPuzzleObjective = (): string => {
   return pickRandom(puzzleObjectives);
 };
 
-export const getPlayerSteps = (count: number = 3): string[] => {
+export const getPlayerSteps = (count: number = 3): { step: string; answerType: AnswerType }[] => {
   const shuffled = [...playerSteps].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
 };
@@ -219,7 +343,29 @@ export const getCluePattern = () => {
   return pickRandom(cluePatterns);
 };
 
+export const getCluePatternsByType = (type: AnswerType) => {
+  return cluePatterns.filter(p => p.answerType === type);
+};
+
 export const generateStaticNoise = (tone: BroadcastTone): string => {
   const templates = getTemplates(tone);
   return pickRandom(templates.staticNoises);
+};
+
+export const getKnownInfoTemplates = (category: KnownInfoCategory) => {
+  return knownInfoIntegrations[category] || knownInfoIntegrations.other;
+};
+
+export const getKnownInfoCategory = (info: string): KnownInfoCategory => {
+  const categoryMap: Record<string, KnownInfoCategory> = {
+    '发现了一盘旧磁带': 'tape',
+    '拥有一台老式收音机': 'radio',
+    '找到一张旧报纸': 'document',
+    '收到匿名信件': 'document',
+    '知道主播的名字': 'name',
+    '了解这个城镇的历史': 'history',
+    '看到了奇怪的符号': 'symbol',
+    '知道一个电话号码': 'phone',
+  };
+  return categoryMap[info] || 'other';
 };

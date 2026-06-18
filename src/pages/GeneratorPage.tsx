@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, MapPin, User, Volume2, AlertTriangle, Plus, X, Sparkles, ArrowRight, Target, ListTodo } from 'lucide-react';
+  Radio, MapPin, User, Volume2, AlertTriangle, Plus, X, Sparkles, 
+  ArrowRight, Target, ListTodo, Layers, Check, Trash2, 
+  ChevronDown, ChevronUp, Copy, RefreshCw 
+} from 'lucide-react';
 import { usePuzzleStore } from '@/store/puzzleStore';
 import { RadioKnob, SpectrumVisualizer, TypewriterText } from '@/components';
-import { generateRadioPuzzle, simulateDelay } from '@/utils/radioGenerator';
+import { generateRadioPuzzle, generateMultipleVersions, simulateDelay } from '@/utils/radioGenerator';
 import { 
   CHAPTER_POSITION_LABELS, 
   BROADCAST_TONE_LABELS, 
@@ -13,6 +16,7 @@ import {
   DEFAULT_KEYWORD_SUGGESTIONS,
   type ChapterPosition,
   type BroadcastTone,
+  type PuzzleVersion,
 } from '@/types';
 
 export default function GeneratorPage() {
@@ -33,6 +37,13 @@ export default function GeneratorPage() {
     setAnswers,
     setPlayerFeedback,
     setIsGenerating,
+    versions,
+    selectedVersionId,
+    addVersion,
+    selectVersion,
+    applyVersionToDraft,
+    deleteVersion,
+    clearVersions,
   } = usePuzzleStore();
 
   const draft = getCurrentDraft();
@@ -41,6 +52,9 @@ export default function GeneratorPage() {
   const [showKeywordSuggestions, setShowKeywordSuggestions] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [generationStep, setGenerationStep] = useState(0);
+  const [versionCount, setVersionCount] = useState(3);
+  const [showVersionPanel, setShowVersionPanel] = useState(true);
+  const [compareMode, setCompareMode] = useState(false);
 
   useEffect(() => {
     if (!draft) {
@@ -63,7 +77,7 @@ export default function GeneratorPage() {
     setShowKeywordSuggestions(false);
   };
 
-  const handleGenerate = async () => {
+  const handleGenerateSingle = async () => {
     if (generationParams.keywords.length === 0) {
       alert('请至少输入一个关键词');
       return;
@@ -87,11 +101,71 @@ export default function GeneratorPage() {
     setAnswers(result.answers);
     setPlayerFeedback(result.playerFeedback);
     
+    addVersion({
+      radioSegment: result.radioSegment,
+      clues: result.clues,
+      answers: result.answers,
+      playerFeedback: result.playerFeedback,
+      fairnessScore: result.fairnessScore,
+    });
+    
     setGenerationStep(4);
     await simulateDelay(300);
     setShowResult(true);
     setIsGenerating(false);
   };
+
+  const handleGenerateMultiple = async () => {
+    if (generationParams.keywords.length === 0) {
+      alert('请至少输入一个关键词');
+      return;
+    }
+
+    setIsGenerating(true);
+    setShowResult(false);
+    setGenerationStep(0);
+
+    await simulateDelay(500);
+    setGenerationStep(1);
+    await simulateDelay(1000);
+    setGenerationStep(2);
+    await simulateDelay(800);
+    setGenerationStep(3);
+
+    const newVersions = generateMultipleVersions(generationParams, versionCount);
+    
+    newVersions.forEach((v, i) => {
+      addVersion({
+        radioSegment: v.radioSegment,
+        clues: v.clues,
+        answers: v.answers,
+        playerFeedback: v.playerFeedback,
+        fairnessScore: v.fairnessScore,
+      });
+    });
+
+    if (newVersions.length > 0) {
+      const latest = newVersions[newVersions.length - 1];
+      setRadioSegment(latest.radioSegment);
+      setClues(latest.clues);
+      setAnswers(latest.answers);
+      setPlayerFeedback(latest.playerFeedback);
+    }
+    
+    setGenerationStep(4);
+    await simulateDelay(300);
+    setShowResult(true);
+    setIsGenerating(false);
+  };
+
+  const handleApplyVersion = (versionId: string) => {
+    applyVersionToDraft(versionId);
+    selectVersion(versionId);
+  };
+
+  const selectedVersion = useMemo(() => {
+    return versions.find(v => v.id === selectedVersionId);
+  }, [versions, selectedVersionId]);
 
   const steps = [
     { label: '分析参数', icon: Radio },
@@ -109,6 +183,18 @@ export default function GeneratorPage() {
     (kw) => !generationParams.keywords.includes(kw)
   );
 
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-horror-neonGreen';
+    if (score >= 60) return 'text-horror-amber';
+    return 'text-horror-neonRed';
+  };
+
+  const getScoreBgColor = (score: number) => {
+    if (score >= 80) return 'bg-horror-neonGreen/20 border-horror-neonGreen/50';
+    if (score >= 60) return 'bg-horror-amber/20 border-horror-amber/50';
+    return 'bg-horror-neonRed/20 border-horror-neonRed/50';
+  };
+
   if (!draft) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -121,6 +207,13 @@ export default function GeneratorPage() {
       </div>
     );
   }
+
+  const displayContent = selectedVersion || (draft.radioSegment ? {
+    radioSegment: draft.radioSegment,
+    clues: draft.clues,
+    answers: draft.answers,
+    fairnessScore: 0,
+  } : null);
 
   return (
     <div className="min-h-screen pt-24 pb-12">
@@ -403,34 +496,53 @@ export default function GeneratorPage() {
               </div>
             </motion.div>
 
-            <motion.button
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.6 }}
-              onClick={handleGenerate}
-              disabled={isGenerating || generationParams.keywords.length === 0}
-              className="w-full py-4 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border-2 border-horror-neonGreen rounded-xl font-terminal text-lg text-horror-neonGreen transition-all duration-300 flex items-center justify-center gap-3 shadow-horror disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+              transition={{ delay: 0.55 }}
+              className="retro-card rounded-xl p-6"
             >
-              {isGenerating ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <div className="relative w-6 h-6">
-                      <div className="absolute inset-0 border-2 border-horror-neonGreen/30 rounded-full" />
-                      <div className="absolute inset-0 border-2 border-transparent border-t-horror-neonGreen rounded-full animate-spin" />
-                    </div>
-                    <span>
-                      {steps[generationStep]?.label || '生成中...'}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  <span>生成电台谜题</span>
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              )}
-            </motion.button>
+              <h3 className="font-terminal text-lg text-horror-neonGreen mb-4 flex items-center gap-2">
+                <Layers className="w-5 h-5" />
+                生成选项
+              </h3>
+              <div className="flex items-center gap-4 mb-4">
+                <span className="font-terminal text-sm text-gray-400">生成版本数：</span>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((count) => (
+                    <button
+                      key={count}
+                      onClick={() => setVersionCount(count)}
+                      className={`w-8 h-8 rounded font-terminal text-sm transition-all ${
+                        versionCount === count
+                          ? 'bg-horror-neonGreen/20 border-horror-neonGreen text-horror-neonGreen'
+                          : 'bg-horror-gray border-horror-lightGray/30 text-gray-400 hover:border-horror-neonGreen/50'
+                      } border`}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleGenerateSingle}
+                  disabled={isGenerating || generationParams.keywords.length === 0}
+                  className="flex-1 py-3 bg-horror-gray/50 hover:bg-horror-gray border border-horror-lightGray/50 rounded-lg font-terminal text-sm text-gray-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  单版本生成
+                </button>
+                <button
+                  onClick={handleGenerateMultiple}
+                  disabled={isGenerating || generationParams.keywords.length === 0}
+                  className="flex-1 py-3 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border-2 border-horror-neonGreen rounded-lg font-terminal text-sm text-horror-neonGreen transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-horror"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  多版本生成
+                </button>
+              </div>
+            </motion.div>
 
             {isGenerating && (
               <motion.div
@@ -476,8 +588,115 @@ export default function GeneratorPage() {
           </div>
 
           <div className="space-y-6">
+            {versions.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="retro-card rounded-xl overflow-hidden"
+              >
+                <button
+                  onClick={() => setShowVersionPanel(!showVersionPanel)}
+                  className="w-full p-4 flex items-center justify-between hover:bg-horror-gray/30 transition-colors"
+                >
+                  <h3 className="font-terminal text-lg text-horror-neonGreen flex items-center gap-2">
+                    <Layers className="w-5 h-5" />
+                    生成版本 ({versions.length})
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    {versions.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm('确定要清空所有版本吗？')) {
+                            clearVersions();
+                          }
+                        }}
+                        className="text-gray-500 hover:text-horror-neonRed transition-colors p-1"
+                        title="清空版本"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    {showVersionPanel ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                  </div>
+                </button>
+                
+                <AnimatePresence>
+                  {showVersionPanel && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-4 pt-0 space-y-2 max-h-80 overflow-y-auto">
+                        {versions.map((version, index) => (
+                          <motion.div
+                            key={version.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            onClick={() => selectVersion(version.id)}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                              selectedVersionId === version.id
+                                ? 'bg-horror-neonGreen/10 border-horror-neonGreen/50'
+                                : 'bg-horror-gray/30 border-horror-lightGray/30 hover:border-horror-neonGreen/30'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-terminal text-sm text-gray-200 flex items-center gap-2">
+                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  selectedVersionId === version.id
+                                    ? 'bg-horror-neonGreen/20 text-horror-neonGreen'
+                                    : 'bg-horror-lightGray/30 text-gray-400'
+                                }`}>
+                                  {version.versionNumber}
+                                </span>
+                                版本 {version.versionNumber}
+                              </span>
+                              <div className={`px-2 py-0.5 rounded text-xs font-terminal border ${getScoreBgColor(version.fairnessScore)}`}>
+                                <span className={getScoreColor(version.fairnessScore)}>
+                                  公平性 {version.fairnessScore}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs font-terminal text-gray-500">
+                              <span>线索 {version.clues.length} 条</span>
+                              <span>答案 {version.answers.length} 个</span>
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleApplyVersion(version.id);
+                                }}
+                                className="flex-1 py-1.5 bg-horror-neonGreen/20 hover:bg-horror-neonGreen/30 border border-horror-neonGreen/50 rounded text-xs font-terminal text-horror-neonGreen transition-colors flex items-center justify-center gap-1"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                应用此版本
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteVersion(version.id);
+                                }}
+                                className="px-3 py-1.5 bg-horror-gray/50 hover:bg-horror-red/20 border border-horror-lightGray/30 hover:border-horror-red/50 rounded text-xs font-terminal text-gray-400 hover:text-horror-red transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            )}
+
             <AnimatePresence mode="wait">
-              {showResult && draft.radioSegment && (
+              {showResult && displayContent && (
                 <motion.div
                   key="result"
                   initial={{ opacity: 0, x: 20 }}
@@ -487,13 +706,20 @@ export default function GeneratorPage() {
                 >
                   <div className="retro-card rounded-xl p-6 relative overflow-hidden">
                     <div className="static-noise" />
-                    <h3 className="font-terminal text-lg text-horror-neonGreen mb-4 flex items-center gap-2 relative z-10">
-                      <Radio className="w-5 h-5" />
-                      电台文本
-                    </h3>
-                    <div className="font-terminal text-gray-200 leading-relaxed relative z-10">
+                    <div className="flex items-center justify-between mb-4 relative z-10">
+                      <h3 className="font-terminal text-lg text-horror-neonGreen flex items-center gap-2">
+                        <Radio className="w-5 h-5" />
+                        电台文本
+                      </h3>
+                      {selectedVersion && (
+                        <span className="px-2 py-1 bg-horror-neonGreen/10 border border-horror-neonGreen/30 rounded text-xs font-terminal text-horror-neonGreen">
+                          版本 {selectedVersion.versionNumber}
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-terminal text-gray-200 leading-relaxed relative z-10 max-h-64 overflow-y-auto">
                       <TypewriterText
-                        text={draft.radioSegment.broadcastText}
+                        text={displayContent.radioSegment.broadcastText}
                         speed={25}
                         className="text-shadow-glow"
                       />
@@ -514,7 +740,7 @@ export default function GeneratorPage() {
                       解谜目标
                     </h3>
                     <p className="font-terminal text-gray-200 leading-relaxed">
-                      {draft.radioSegment.puzzleObjective}
+                      {displayContent.radioSegment.puzzleObjective}
                     </p>
                   </motion.div>
 
@@ -529,7 +755,7 @@ export default function GeneratorPage() {
                       玩家操作步骤
                     </h3>
                     <ol className="space-y-3">
-                      {draft.radioSegment.playerSteps.map((step, index) => (
+                      {displayContent.radioSegment.playerSteps.map((step, index) => (
                         <motion.li
                           key={index}
                           initial={{ opacity: 0, x: -20 }}
@@ -555,13 +781,21 @@ export default function GeneratorPage() {
                     <div className="flex-1 p-4 bg-horror-gray/50 rounded-lg border border-horror-lightGray/30">
                       <div className="font-terminal text-xs text-gray-500 mb-1">提取线索</div>
                       <div className="font-horror text-2xl text-horror-neonGreen">
-                        {draft.clues.length} 条
+                        {displayContent.clues.length} 条
                       </div>
                     </div>
                     <div className="flex-1 p-4 bg-horror-gray/50 rounded-lg border border-horror-lightGray/30">
                       <div className="font-terminal text-xs text-gray-500 mb-1">关联答案</div>
                       <div className="font-horror text-2xl text-horror-amber">
-                        {draft.answers.length} 个
+                        {displayContent.answers.length} 个
+                      </div>
+                    </div>
+                    <div className="flex-1 p-4 bg-horror-gray/50 rounded-lg border border-horror-lightGray/30">
+                      <div className="font-terminal text-xs text-gray-500 mb-1">公平性评分</div>
+                      <div className={`font-horror text-2xl ${
+                        'fairnessScore' in displayContent ? getScoreColor(displayContent.fairnessScore) : 'text-gray-400'
+                      }`}>
+                        {'fairnessScore' in displayContent ? displayContent.fairnessScore : '-'}
                       </div>
                     </div>
                   </motion.div>
@@ -569,7 +803,7 @@ export default function GeneratorPage() {
               )}
             </AnimatePresence>
 
-            {!showResult && !isGenerating && (
+            {!showResult && !isGenerating && versions.length === 0 && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}

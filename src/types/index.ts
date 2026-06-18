@@ -20,7 +20,9 @@ export interface Clue {
   content: string;
   hintLevel: HintLevel;
   answerId?: string;
+  answerType?: AnswerType;
   order: number;
+  relatedStep?: number;
 }
 
 export interface Answer {
@@ -72,6 +74,38 @@ export interface ValidationIssue {
   message: string;
   clueId?: string;
 }
+
+export interface PuzzleVersion {
+  id: string;
+  versionNumber: number;
+  radioSegment: RadioSegment;
+  clues: Clue[];
+  answers: Answer[];
+  playerFeedback: PlayerFeedback[];
+  fairnessScore: number;
+  createdAt: Date;
+}
+
+export type KnownInfoCategory = 'tape' | 'radio' | 'document' | 'name' | 'history' | 'symbol' | 'phone' | 'other';
+
+export const KNOWN_INFO_CATEGORY_MAP: Record<string, KnownInfoCategory> = {
+  '发现了一盘旧磁带': 'tape',
+  '拥有一台老式收音机': 'radio',
+  '找到一张旧报纸': 'document',
+  '收到匿名信件': 'document',
+  '知道主播的名字': 'name',
+  '了解这个城镇的历史': 'history',
+  '看到了奇怪的符号': 'symbol',
+  '知道一个电话号码': 'phone',
+};
+
+export const ANSWER_TYPE_KEYWORDS: Record<AnswerType, string[]> = {
+  frequency: ['频率', '调频', '电台', '频道', 'FM', '波段'],
+  knob: ['旋钮', '旋转', '档位', '刻度', '指针'],
+  tape: ['磁带', '录音带', '卡带', '倒带', '播放顺序'],
+  time: ['时间', '点钟', '午夜', '凌晨', '时刻'],
+  code: ['密码', '数字', '组合', '代码', '编号'],
+};
 
 export const CHAPTER_POSITION_LABELS: Record<ChapterPosition, string> = {
   opening: '开篇',
